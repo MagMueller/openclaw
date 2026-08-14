@@ -494,7 +494,8 @@ export async function dispatchChatSlashCommand(
   return "completed";
 }
 
-function injectCommandResult(host: ChatCommandHost, content: string) {
+/** Renders a system line in the transcript so a command always ends visibly. */
+export function injectCommandResult(host: ChatCommandHost, content: string) {
   host.chatMessages = [
     ...host.chatMessages,
     {

@@ -13,6 +13,7 @@ import {
 import { composeBrowserAnnotationContext } from "./browser-annotation-context.ts";
 import {
   dispatchChatSlashCommand,
+  injectCommandResult,
   requireChatSessionAction,
   shouldQueueLocalSlashCommand,
 } from "./chat-commands.ts";
@@ -68,6 +69,14 @@ import {
   OFFLINE_QUEUE_STORAGE_ERROR,
   sendQueuedChatMessageWithQueueMode as sendQueuedChatMessageWithQueueModeLifecycle,
 } from "./steer-lifecycle.ts";
+
+/**
+ * Locally-executed commands whose client implementation accepts no argument,
+ * although the catalog declares one. Keep in step with the executor: a command
+ * listed here must either gain local support for its argument or stay listed,
+ * because the alternative is collecting a value and dropping it in silence.
+ */
+const LOCAL_COMMANDS_IGNORING_ARGS = new Set(["compact", "usage", "export-session"]);
 
 type ChatSendOptions = {
   restoreDraft?: boolean;
@@ -243,6 +252,10 @@ export async function handleSendChat(
     if (/^\/(?:btw|side)(?::|\s|$)/i.test(message)) {
       const question = extractCompanionCommandQuestion(message);
       if (!question) {
+        // A bare companion command carries no question to open. Saying so is the
+        // whole outcome: returning here silently leaves the operator with a
+        // keystroke that did nothing and a draft that was never even cleared.
+        injectCommandResult(host, t("chat.commandResults.companion.usage"));
         return;
       }
       const submitKey = chatSubmitKey(host, "local", message, []);
@@ -331,7 +344,13 @@ export async function handleSendChat(
 
     const forwardModel =
       parsed?.command.key === "model" && shouldForwardModelCommandToServer(parsed.args);
-    if (parsed?.command.executeLocal && !forwardModel) {
+    // Some commands have a reduced client-side implementation: /compact takes no
+    // instructions, /usage no mode, /export-session no path. Running those
+    // locally with an argument would drop it without a word, so an invocation
+    // that carries one goes to the Gateway, which implements the full command.
+    const forwardUnsupportedArgs =
+      Boolean(parsed?.args) && LOCAL_COMMANDS_IGNORING_ARGS.has(parsed?.command.key ?? "");
+    if (parsed?.command.executeLocal && !forwardModel && !forwardUnsupportedArgs) {
       if (shouldQueueLocalSlashCommand(parsed.command.key)) {
         const submitKey = chatSubmitKey(host, "local", message, attachmentsToSend);
         await withChatSubmitGuard(host, submitKey, async () => {

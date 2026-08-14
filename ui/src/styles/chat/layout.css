@@ -4021,6 +4021,38 @@ button.chat-reply-preview--message:disabled {
   flex-shrink: 0;
 }
 
+/* The stage header shows real command text, so it drops the group label's
+   uppercase treatment and lays the prefix and hint out as one row. */
+.slash-menu-group__label--stage {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--control-ui-text-sm);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.slash-menu-group__prefix {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.slash-menu-group__hint {
+  flex-shrink: 0;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* The refused-submit state has to read as a refusal, not as the argument name. */
+.slash-menu-group__hint--needed {
+  color: var(--danger);
+}
+
 .chat-attachments-preview {
   display: flex;
   gap: 8px;

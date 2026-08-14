@@ -1,33 +1,34 @@
 import { html, nothing, type TemplateResult } from "lit";
+import { parseCommandArgs } from "../../../../../src/auto-reply/commands-invocation.js";
+import type { CommandArgValues } from "../../../../../src/auto-reply/commands-registry.types.js";
 import { icons, type IconName } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
 import {
-  SLASH_COMMANDS,
+  acceptsSlashCommandArgs,
+  buildSlashCommandText,
+  getSlashCommandArgs,
   getSlashCommandCategoryLabel,
   getSlashCommandCompletions,
   getSlashCommandDescription,
+  ownsRawArgumentTail,
+  resolveSlashCommandArgChoices,
+  SLASH_COMMANDS,
+  type SlashCommandArgChoice,
+  type SlashCommandArgScope,
   type SlashCommandCategory,
   type SlashCommandDef,
 } from "../../../lib/chat/commands.ts";
 import { exportChatMarkdown } from "../export.ts";
 import { commitComposerDraft, getChatComposerState } from "./chat-composer-state.ts";
-import type { ChatComposerProps, ChatComposerState } from "./chat-composer-types.ts";
+import type { ChatComposerProps, ChatComposerState, SlashArgStage } from "./chat-composer-types.ts";
 
 export function resetSlashMenuState(state: ChatComposerState): void {
-  state.slashMenuMode = "command";
-  state.slashMenuCommand = null;
-  state.slashMenuArgItems = [];
+  state.slashMenuStage = null;
   state.slashMenuItems = [];
 }
 
 function hasVisibleSlashMenuState(state: ChatComposerState): boolean {
-  return (
-    state.slashMenuOpen ||
-    state.slashMenuMode !== "command" ||
-    state.slashMenuCommand !== null ||
-    state.slashMenuArgItems.length > 0 ||
-    state.slashMenuItems.length > 0
-  );
+  return state.slashMenuOpen || state.slashMenuStage !== null || state.slashMenuItems.length > 0;
 }
 
 function closeSlashMenuIfNeeded(state: ChatComposerState, requestUpdate: () => void): void {
@@ -37,6 +38,181 @@ function closeSlashMenuIfNeeded(state: ChatComposerState, requestUpdate: () => v
   state.slashMenuOpen = false;
   resetSlashMenuState(state);
   requestUpdate();
+}
+
+/**
+ * Active model context for provider-dependent choices such as /think levels.
+ * Without it those providers fall back to their own defaults, which can offer
+ * levels the active model does not support.
+ */
+function getSlashArgScope(props: ChatComposerProps): SlashCommandArgScope | undefined {
+  const model = props.sessions?.sessions?.find((row) => row.key === props.sessionKey)?.model;
+  if (!model) {
+    return undefined;
+  }
+  const separator = model.indexOf("/");
+  if (separator === -1) {
+    return { model };
+  }
+  return { provider: model.slice(0, separator), model: model.slice(separator + 1) };
+}
+
+function findSlashCommandByName(name: string): SlashCommandDef | undefined {
+  const normalized = name.toLowerCase();
+  return SLASH_COMMANDS.find(
+    (command) =>
+      command.name === normalized ||
+      command.aliases?.some((alias) => alias.replace(/^\//u, "").toLowerCase() === normalized),
+  );
+}
+
+/**
+ * Builds the stage for the next argument still missing a value, or null when the
+ * command needs nothing more. Commands that parse their own raw tail never get a
+ * stage: their declared arguments describe the native registration surface, and
+ * a stepped menu would assemble text the command does not accept.
+ */
+function buildSlashArgStage(
+  command: SlashCommandDef,
+  values: CommandArgValues,
+  props: ChatComposerProps,
+): SlashArgStage | null {
+  if (!acceptsSlashCommandArgs(command) || ownsRawArgumentTail(command)) {
+    return null;
+  }
+  const scope = getSlashArgScope(props);
+  for (const arg of getSlashCommandArgs(command)) {
+    if (values[arg.name] != null) {
+      continue;
+    }
+    return {
+      command,
+      values,
+      arg,
+      choices: resolveSlashCommandArgChoices(command, arg, scope),
+      input: "",
+      needsValue: false,
+      noMatch: false,
+    };
+  }
+  return null;
+}
+
+/** Command text assembled so far, shown as the staged input's prefix. */
+function getSlashStagePrefix(stage: SlashArgStage): string {
+  return buildSlashCommandText(stage.command, stage.values);
+}
+
+function openSlashArgStage(
+  stage: SlashArgStage,
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+): void {
+  const state = getChatComposerState(props.paneId);
+  state.slashMenuStage = stage;
+  state.slashMenuItems = [];
+  state.slashMenuIndex = 0;
+  state.slashMenuOpen = true;
+  // The draft always carries the real command text. Keeping it there is what lets
+  // the message box show exactly what will be sent, keeps a queued-message edit
+  // from mistaking an open stage for an empty composer, and lets a typed command
+  // and a menu-picked one share one state machine.
+  commitComposerDraft(props, `${getSlashStagePrefix(stage)} `);
+  requestUpdate();
+}
+
+/**
+ * Runs the assembled command through the composer's normal send route. The text
+ * comes from the canonical serializer, so a command that declares its own
+ * argument format (`/exec host=…`, `/queue debounce:…`) is never space-joined
+ * into syntax its parser rejects.
+ */
+function runStagedSlashCommand(
+  command: SlashCommandDef,
+  values: CommandArgValues,
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+): void {
+  const state = getChatComposerState(props.paneId);
+  state.slashMenuOpen = false;
+  resetSlashMenuState(state);
+  commitComposerDraft(props, buildSlashCommandText(command, values));
+  props.onSend();
+  queueMicrotask(() => state.composerTextarea?.focus({ preventScroll: true }));
+  requestUpdate();
+}
+
+/**
+ * Commits the current stage and advances to the next declared argument, running
+ * the command once nothing remains. An empty value ends collection: that is what
+ * keeps trailing optional arguments optional and keeps a bare invocation such as
+ * `/think` (a status query, not a change) reachable from the menu.
+ */
+export function commitSlashArgValue(
+  value: string,
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+): void {
+  const state = getChatComposerState(props.paneId);
+  const stage = state.slashMenuStage;
+  if (!stage) {
+    return;
+  }
+  const values = value ? { ...stage.values, [stage.arg.name]: value } : stage.values;
+  const next = value ? buildSlashArgStage(stage.command, values, props) : null;
+  if (next) {
+    openSlashArgStage(next, props, requestUpdate);
+    return;
+  }
+  runStagedSlashCommand(stage.command, values, props, requestUpdate);
+}
+
+/** Opens a stage for the chosen command, or prepares the draft when it takes none. */
+function beginSlashCommand(
+  cmd: SlashCommandDef,
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+  submit: boolean,
+): void {
+  const state = getChatComposerState(props.paneId);
+  const stage = buildSlashArgStage(cmd, {}, props);
+  if (stage) {
+    openSlashArgStage(stage, props, requestUpdate);
+    return;
+  }
+  // A command that takes no arguments must run bare instead of leaving a draft
+  // the operator has to send by hand; one that owns its raw tail gets the draft
+  // prepared so the tail can be typed in the message box.
+  if (!acceptsSlashCommandArgs(cmd)) {
+    state.slashMenuOpen = false;
+    resetSlashMenuState(state);
+    commitComposerDraft(props, `/${cmd.name}`);
+    if (submit) {
+      props.onSend();
+    }
+    requestUpdate();
+    return;
+  }
+  commitComposerDraft(props, `/${cmd.name} `);
+  state.slashMenuOpen = false;
+  resetSlashMenuState(state);
+  requestUpdate();
+}
+
+export function selectSlashCommand(
+  cmd: SlashCommandDef,
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+) {
+  beginSlashCommand(cmd, props, requestUpdate, true);
+}
+
+export function tabCompleteSlashCommand(
+  cmd: SlashCommandDef,
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+) {
+  beginSlashCommand(cmd, props, requestUpdate, false);
 }
 
 function requestSlashCommandRefresh(
@@ -65,6 +241,11 @@ function requestSlashCommandRefresh(
   });
 }
 
+/**
+ * Derives the menu from the draft. A bare `/name` fragment lists commands; once
+ * a separator is typed the same stage machinery the menu uses takes over, so
+ * `/tools ` offers its options instead of closing the suggestions.
+ */
 export function updateSlashMenu(
   value: string,
   requestUpdate: () => void,
@@ -73,122 +254,42 @@ export function updateSlashMenu(
   getCurrentValue?: () => string,
 ): void {
   const state = getChatComposerState(props.paneId);
-  const argMatch = value.match(/^\/(\S+)\s(.*)$/);
-  if (argMatch) {
+  const commandMatch = value.match(/^\/(\S*)$/u);
+  if (commandMatch) {
     if (!opts.skipSlashIntent) {
       requestSlashCommandRefresh(value, props, requestUpdate, getCurrentValue);
     }
-    const cmdName = argMatch[1]?.toLowerCase();
-    const argFilter = argMatch[2]?.toLowerCase();
-    if (cmdName === undefined || argFilter === undefined) {
-      closeSlashMenuIfNeeded(state, requestUpdate);
-      return;
-    }
-    const cmd = SLASH_COMMANDS.find((entry) => entry.name === cmdName);
-    if (cmd?.argOptions?.length) {
-      const filtered = argFilter
-        ? cmd.argOptions.filter((arg) => arg.toLowerCase().startsWith(argFilter))
-        : cmd.argOptions;
-      if (filtered.length > 0) {
-        state.slashMenuMode = "args";
-        state.slashMenuCommand = cmd;
-        state.slashMenuArgItems = filtered;
-        state.slashMenuOpen = true;
-        state.slashMenuIndex = 0;
-        state.slashMenuItems = [];
-        requestUpdate();
-        return;
-      }
-    }
-    closeSlashMenuIfNeeded(state, requestUpdate);
-    return;
-  }
-
-  const match = value.match(/^\/(\S*)$/);
-  if (match) {
-    if (!opts.skipSlashIntent) {
-      requestSlashCommandRefresh(value, props, requestUpdate, getCurrentValue);
-    }
-    const items = getSlashCommandCompletions(match[1] ?? "", { showAll: true });
+    const items = getSlashCommandCompletions(commandMatch[1] ?? "", { showAll: true });
     state.slashMenuItems = items;
     state.slashMenuOpen = items.length > 0;
     state.slashMenuIndex = 0;
-    state.slashMenuMode = "command";
-    state.slashMenuCommand = null;
-    state.slashMenuArgItems = [];
-  } else {
-    closeSlashMenuIfNeeded(state, requestUpdate);
-    return;
-  }
-  requestUpdate();
-}
-
-export function selectSlashCommand(
-  cmd: SlashCommandDef,
-  props: ChatComposerProps,
-  requestUpdate: () => void,
-) {
-  const state = getChatComposerState(props.paneId);
-  if (cmd.argOptions?.length) {
-    commitComposerDraft(props, `/${cmd.name} `);
-    state.slashMenuMode = "args";
-    state.slashMenuCommand = cmd;
-    state.slashMenuArgItems = cmd.argOptions;
-    state.slashMenuOpen = true;
-    state.slashMenuIndex = 0;
-    state.slashMenuItems = [];
+    state.slashMenuStage = null;
     requestUpdate();
     return;
   }
 
-  if (cmd.executeLocal && !cmd.args) {
-    state.slashMenuOpen = false;
-    resetSlashMenuState(state);
-    commitComposerDraft(props, `/${cmd.name}`);
-    props.onSend();
-  } else {
-    commitComposerDraft(props, `/${cmd.name} `);
+  const argMatch = value.match(/^\/(\S+)\s([\s\S]*)$/u);
+  const command = argMatch ? findSlashCommandByName(argMatch[1] ?? "") : undefined;
+  if (!argMatch || !command) {
     closeSlashMenuIfNeeded(state, requestUpdate);
-  }
-}
-
-export function tabCompleteSlashCommand(
-  cmd: SlashCommandDef,
-  props: ChatComposerProps,
-  requestUpdate: () => void,
-) {
-  const state = getChatComposerState(props.paneId);
-  if (cmd.argOptions?.length) {
-    commitComposerDraft(props, `/${cmd.name} `);
-    state.slashMenuMode = "args";
-    state.slashMenuCommand = cmd;
-    state.slashMenuArgItems = cmd.argOptions;
-    state.slashMenuOpen = true;
-    state.slashMenuIndex = 0;
-    state.slashMenuItems = [];
-    requestUpdate();
     return;
   }
-  commitComposerDraft(props, cmd.args ? `/${cmd.name} ` : `/${cmd.name}`);
-  state.slashMenuOpen = false;
-  resetSlashMenuState(state);
-  requestUpdate();
-}
-
-export function selectSlashArg(
-  arg: string,
-  props: ChatComposerProps,
-  requestUpdate: () => void,
-  run: boolean,
-) {
-  const state = getChatComposerState(props.paneId);
-  const cmdName = state.slashMenuCommand?.name ?? "";
-  state.slashMenuOpen = false;
-  resetSlashMenuState(state);
-  commitComposerDraft(props, `/${cmdName} ${arg}`);
-  if (run) {
-    props.onSend();
+  // The token still being typed is a filter over the next argument's options,
+  // not a committed value, so it is held back from the parsed set.
+  const tail = argMatch[2] ?? "";
+  const tokens = tail.split(/\s+/u).filter(Boolean);
+  const filter = /\s$/u.test(tail) ? "" : (tokens.pop() ?? "");
+  const parsed = parseCommandArgs(command.definition, tokens.join(" "));
+  const stage = buildSlashArgStage(command, parsed?.values ?? {}, props);
+  if (!stage) {
+    closeSlashMenuIfNeeded(state, requestUpdate);
+    return;
   }
+  stage.input = filter;
+  state.slashMenuStage = stage;
+  state.slashMenuItems = [];
+  state.slashMenuIndex = 0;
+  state.slashMenuOpen = true;
   requestUpdate();
 }
 
@@ -216,12 +317,36 @@ function getSlashArgOptionId(paneId: string, commandName: string, arg: string): 
   );
 }
 
+/** Choices left after the stage's filter; empty on a free-value stage. */
+function getSlashStageChoices(stage: SlashArgStage): SlashCommandArgChoice[] {
+  const filter = stage.input.trim().toLowerCase();
+  if (!filter) {
+    return stage.choices;
+  }
+  return stage.choices.filter(
+    (choice) =>
+      choice.value.toLowerCase().includes(filter) || choice.label.toLowerCase().includes(filter),
+  );
+}
+
+/** Options the message textarea drives while a command tail is being collected. */
+export function getSlashArgDraftChoices(state: ChatComposerState): SlashCommandArgChoice[] {
+  const stage = state.slashMenuStage;
+  if (!stage) {
+    return [];
+  }
+  return getSlashStageChoices(stage);
+}
+
 export function isSlashMenuVisible(state: ChatComposerState): boolean {
   if (!state.slashMenuOpen) {
     return false;
   }
-  if (state.slashMenuMode === "args") {
-    return Boolean(state.slashMenuCommand && state.slashMenuArgItems.length > 0);
+  // A stage is visible even with no options: its header carries the argument
+  // prompt and the refusal text, and hiding it is what made a refused submit
+  // look like a dead key.
+  if (state.slashMenuStage) {
+    return true;
   }
   return state.slashMenuItems.length > 0;
 }
@@ -233,23 +358,26 @@ export function getActiveSlashMenuOptionId(
   if (!isSlashMenuVisible(state)) {
     return null;
   }
-  if (state.slashMenuMode === "args") {
-    const commandName = state.slashMenuCommand?.name;
-    const arg = state.slashMenuArgItems[state.slashMenuIndex];
-    return commandName && arg ? getSlashArgOptionId(paneId, commandName, arg) : null;
+  const stage = state.slashMenuStage;
+  if (stage) {
+    const choice = getSlashStageChoices(stage)[state.slashMenuIndex];
+    return choice ? getSlashArgOptionId(paneId, stage.command.name, choice.value) : null;
   }
   const cmd = state.slashMenuItems[state.slashMenuIndex];
   return cmd ? getSlashCommandOptionId(paneId, cmd) : null;
 }
 
 export function getActiveSlashMenuOptionLabel(state: ChatComposerState): string {
+  const stage = state.slashMenuStage;
+  if (stage) {
+    const choice = isSlashMenuVisible(state)
+      ? getSlashStageChoices(stage)[state.slashMenuIndex]
+      : undefined;
+    const step = `${getSlashStagePrefix(stage)} [${stage.arg.name}]`;
+    return choice ? `${step} ${choice.label}` : step;
+  }
   if (!isSlashMenuVisible(state)) {
     return "";
-  }
-  if (state.slashMenuMode === "args") {
-    const commandName = state.slashMenuCommand?.name;
-    const arg = state.slashMenuArgItems[state.slashMenuIndex];
-    return commandName && arg ? `/${commandName} ${arg}` : "";
   }
   const cmd = state.slashMenuItems[state.slashMenuIndex];
   if (!cmd) {
@@ -289,8 +417,93 @@ function renderSlashIcon(name: string) {
   return icons[name as IconName] ?? icons.terminal;
 }
 
+/**
+ * Option count for the menu badge. A provider-dependent set is a resolver
+ * function, not an array, so it has no count to advertise before the stage opens.
+ */
+function countStaticChoices(cmd: SlashCommandDef): number {
+  const choices = getSlashCommandArgs(cmd)[0]?.choices;
+  return Array.isArray(choices) ? choices.length : 0;
+}
+
 export function exportMarkdown(props: Pick<ChatComposerProps, "messages" | "assistantName">): void {
   exportChatMarkdown(props.messages, props.assistantName);
+}
+
+/**
+ * The one line that tells the operator what this stage wants, or why the last
+ * key did nothing. A refused submit that renders no text is the silent-failure
+ * case this surface exists to prevent.
+ */
+function getSlashArgHint(stage: SlashArgStage): string {
+  if (stage.needsValue) {
+    return t("chat.commands.argNeedsValue");
+  }
+  if (stage.noMatch) {
+    return t("chat.commands.argNoMatch", { value: stage.input.trim() });
+  }
+  return stage.arg.name;
+}
+
+function renderSlashArgOptions(
+  stage: SlashArgStage,
+  state: ChatComposerState,
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+  listboxId: string,
+): TemplateResult | typeof nothing {
+  const choices = getSlashStageChoices(stage);
+  const refused = stage.needsValue || stage.noMatch;
+  return html`
+    <div
+      id=${listboxId}
+      class="slash-menu"
+      role="listbox"
+      aria-label=${t("chat.commands.arguments")}
+    >
+      <div class="slash-menu__scroll">
+        <div class="slash-menu-group">
+          <div class="slash-menu-group__label slash-menu-group__label--stage">
+            <span class="slash-menu-group__prefix">${getSlashStagePrefix(stage)}</span>
+            <span
+              class="slash-menu-group__hint ${refused ? "slash-menu-group__hint--needed" : ""}"
+              aria-live="polite"
+              >${getSlashArgHint(stage)}</span
+            >
+          </div>
+          ${choices.map(
+            (choice, i) => html`
+              <div
+                id=${getSlashArgOptionId(props.paneId, stage.command.name, choice.value)}
+                class="slash-menu-item ${i === state.slashMenuIndex
+                  ? "slash-menu-item--active"
+                  : ""}"
+                role="option"
+                aria-selected=${i === state.slashMenuIndex}
+                @click=${() => commitSlashArgValue(choice.value, props, requestUpdate)}
+                @mouseenter=${() => {
+                  state.slashMenuIndex = i;
+                  requestUpdate();
+                }}
+              >
+                <span class="slash-menu-leading">
+                  <span class="slash-menu-icon"
+                    >${stage.command.icon ? renderSlashIcon(stage.command.icon) : nothing}</span
+                  >
+                  <span class="slash-menu-name">${choice.label}</span>
+                </span>
+                <span class="slash-menu-trailing">
+                  <span class="slash-menu-desc">
+                    ${getSlashStagePrefix(stage)} ${choice.value}
+                  </span>
+                </span>
+              </div>
+            `,
+          )}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 export function renderSlashMenu(
@@ -304,56 +517,9 @@ export function renderSlashMenu(
     return nothing;
   }
 
-  if (
-    state.slashMenuMode === "args" &&
-    state.slashMenuCommand &&
-    state.slashMenuArgItems.length > 0
-  ) {
-    return html`
-      <div
-        id=${listboxId}
-        class="slash-menu"
-        role="listbox"
-        aria-label=${t("chat.commands.arguments")}
-      >
-        <div class="slash-menu__scroll">
-          <div class="slash-menu-group">
-            <div class="slash-menu-group__label">
-              /${state.slashMenuCommand.name} ${getSlashCommandDescription(state.slashMenuCommand)}
-            </div>
-            ${state.slashMenuArgItems.map(
-              (arg, i) => html`
-                <div
-                  id=${getSlashArgOptionId(props.paneId, state.slashMenuCommand?.name ?? "", arg)}
-                  class="slash-menu-item ${i === state.slashMenuIndex
-                    ? "slash-menu-item--active"
-                    : ""}"
-                  role="option"
-                  aria-selected=${i === state.slashMenuIndex}
-                  @click=${() => selectSlashArg(arg, props, requestUpdate, true)}
-                  @mouseenter=${() => {
-                    state.slashMenuIndex = i;
-                    requestUpdate();
-                  }}
-                >
-                  <span class="slash-menu-leading">
-                    <span class="slash-menu-icon"
-                      >${state.slashMenuCommand?.icon
-                        ? renderSlashIcon(state.slashMenuCommand.icon)
-                        : nothing}</span
-                    >
-                    <span class="slash-menu-name">${arg}</span>
-                  </span>
-                  <span class="slash-menu-trailing">
-                    <span class="slash-menu-desc">/${state.slashMenuCommand?.name} ${arg}</span>
-                  </span>
-                </div>
-              `,
-            )}
-          </div>
-        </div>
-      </div>
-    `;
+  const stage = state.slashMenuStage;
+  if (stage) {
+    return renderSlashArgOptions(stage, state, props, requestUpdate, listboxId);
   }
 
   if (state.slashMenuItems.length === 0) {
@@ -401,10 +567,10 @@ export function renderSlashMenu(
               </span>
               <span class="slash-menu-trailing">
                 <span class="slash-menu-desc">${getSlashCommandDescription(cmd)}</span>
-                ${cmd.argOptions?.length
+                ${countStaticChoices(cmd)
                   ? html`<span class="slash-menu-badge"
                       >${t("chat.commands.optionCount", {
-                        count: String(cmd.argOptions.length),
+                        count: String(countStaticChoices(cmd)),
                       })}</span
                     >`
                   : nothing}

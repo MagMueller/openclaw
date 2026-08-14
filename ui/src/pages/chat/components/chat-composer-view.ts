@@ -105,6 +105,9 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
     slashMenuAnnouncementId,
     composerRunStatus,
   } = context;
+  // While arguments are staged the staged input is the combobox, so the message
+  // textarea must not also advertise the same listbox to assistive tech.
+  const textareaComboboxVisible = slashMenuVisible || skillMenuVisible;
   const disabledBanner = props.disabledBanner
     ? html`
         <div
@@ -422,12 +425,12 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
                   ?readonly=${dictation?.locksComposer === true}
                   aria-autocomplete="list"
                   aria-controls=${ifDefined(
-                    slashMenuVisible || skillMenuVisible ? slashMenuListboxId : undefined,
+                    textareaComboboxVisible ? slashMenuListboxId : undefined,
                   )}
-                  aria-expanded=${ifDefined(
-                    slashMenuVisible || skillMenuVisible ? "true" : undefined,
+                  aria-expanded=${ifDefined(textareaComboboxVisible ? "true" : undefined)}
+                  aria-activedescendant=${ifDefined(
+                    textareaComboboxVisible ? (activeSlashMenuOptionId ?? undefined) : undefined,
                   )}
-                  aria-activedescendant=${ifDefined(activeSlashMenuOptionId ?? undefined)}
                   aria-describedby=${slashMenuAnnouncementId}
                   aria-keyshortcuts=${sendShortcut === "enter"
                     ? "Enter"

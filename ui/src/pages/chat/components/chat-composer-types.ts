@@ -1,10 +1,14 @@
 import type { TemplateResult, nothing } from "lit";
+import type {
+  CommandArgDefinition,
+  CommandArgValues,
+} from "../../../../../src/auto-reply/commands-registry.types.js";
 import type { GatewayBrowserClient } from "../../../api/gateway.ts";
 import type { SessionsListResult } from "../../../api/types.ts";
 import type { QuestionPrompt } from "../../../app/question-prompt.ts";
 import type { ChatSendShortcut } from "../../../app/settings.ts";
 import type { ChatQueueItem } from "../../../lib/chat/chat-types.ts";
-import type { SlashCommandDef } from "../../../lib/chat/commands.ts";
+import type { SlashCommandArgChoice, SlashCommandDef } from "../../../lib/chat/commands.ts";
 import type { ControlUiFollowUpMode } from "../../../lib/chat/follow-up-mode.ts";
 import type { ProviderUsageDisplayProps } from "../../../lib/provider-quota-summary.ts";
 import type { SessionToolOverrides } from "../../../lib/sessions/patch.ts";
@@ -156,13 +160,40 @@ type SkillMenuTarget = {
   query: string;
 };
 
+/**
+ * One argument stage of the selected slash command. A stage with choices renders
+ * the option list; a stage without them collects a free-form value. The message
+ * textarea always holds the command text and the caret, so a command picked from
+ * the menu and one typed by hand reach the identical stage.
+ */
+export type SlashArgStage = {
+  command: SlashCommandDef;
+  /** Values committed for the preceding declared arguments, keyed by name. */
+  values: CommandArgValues;
+  /** The declared argument this stage collects. */
+  arg: CommandArgDefinition;
+  /** Options shown for this stage; empty means a free-form value stage. */
+  choices: SlashCommandArgChoice[];
+  /** Live text: a filter for choices, the value otherwise. */
+  input: string;
+  /**
+   * Set when a submit was refused because this stage still has no value. Without
+   * it the refusal is silent: the key does nothing and the operator is told
+   * nothing. Cleared as soon as the operator types.
+   */
+  needsValue: boolean;
+  /**
+   * Set when the typed filter matched no option. Without it Enter on an unknown
+   * value is swallowed and the operator gets no explanation.
+   */
+  noMatch: boolean;
+};
+
 export type ChatComposerState = {
   slashMenuOpen: boolean;
   slashMenuItems: SlashCommandDef[];
   slashMenuIndex: number;
-  slashMenuMode: "command" | "args";
-  slashMenuCommand: SlashCommandDef | null;
-  slashMenuArgItems: string[];
+  slashMenuStage: SlashArgStage | null;
   slashCommandRefreshPending: boolean;
   skillMenuOpen: boolean;
   skillMenuItems: SlashCommandDef[];

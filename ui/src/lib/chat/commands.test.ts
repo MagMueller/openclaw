@@ -2,10 +2,14 @@ import { expectDefined } from "@openclaw/normalization-core";
 // @vitest-environment node
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, describe, expect, it } from "vitest";
+import { makeSlashCommand } from "./commands.ln.ts";
 import {
   buildFallbackSlashCommands,
   buildSlashCommandsFromEntries,
   getRemoteCommandEntries,
+  getSlashCommandArgs,
+  ownsRawArgumentTail,
+  resolveSlashCommandArgChoices,
   getSkillCommandCompletions,
   getSlashCommandCompletions,
   parseSlashCommand,
@@ -48,6 +52,13 @@ function requireCommandByKey(key: string): Record<string, unknown> {
   );
 }
 
+function requireTypedCommand(key: string): SlashCommandDef {
+  return expectDefined(
+    SLASH_COMMANDS.find((entry) => entry.key === key),
+    `slash command ${key}`,
+  );
+}
+
 function applyRemoteEntries(entries: Parameters<typeof buildSlashCommandsFromEntries>[0]) {
   replaceSlashCommands(buildSlashCommandsFromEntries(entries));
 }
@@ -66,12 +77,7 @@ function completionNames(filter: string, options?: { showAll?: boolean }): strin
   return getSlashCommandCompletions(filter, options).map((command) => command.name);
 }
 
-function slashCommand(
-  name: string,
-  options: Partial<Omit<SlashCommandDef, "key" | "name">> = {},
-): SlashCommandDef {
-  return { key: name, name, description: `${name} command.`, ...options };
-}
+const slashCommand = makeSlashCommand;
 
 describe("getSlashCommandCompletions", () => {
   it("ranks an exact name above prefixes and description-only matches", () => {
@@ -226,16 +232,57 @@ describe("parseSlashCommand", () => {
     expectParsedSlash("/status", { name: "status" }, "");
   });
 
-  it("includes shared /tools with shared arg hints", () => {
+  // The composer reads arguments straight off the canonical definition, so these
+  // cases guard the resolution seam it calls rather than the shape of a copy.
+  it.each([
+    {
+      key: "tools",
+      args: [{ name: "mode", description: "compact or verbose", choices: ["compact", "verbose"] }],
+    },
+    {
+      key: "session",
+      args: [
+        { name: "action", description: "idle | max-age", choices: ["idle", "max-age"] },
+        { name: "value", description: "Duration (24h, 90m) or off", choices: [] },
+      ],
+    },
+    {
+      key: "name",
+      args: [
+        { name: "title", description: "New session name (omit to see a suggestion)", choices: [] },
+      ],
+    },
+  ])("resolves every declared argument for /$key", ({ key, args }) => {
+    const command = requireTypedCommand(key);
+    const declared = getSlashCommandArgs(command);
+    expect(declared.map((arg) => arg.name)).toEqual(args.map((arg) => arg.name));
+    for (const [index, expected] of args.entries()) {
+      const arg = expectDefined(declared[index], `${key} arg ${index}`);
+      expect(arg.description).toBe(expected.description);
+      expect(resolveSlashCommandArgChoices(command, arg).map((choice) => choice.value)).toEqual(
+        expected.choices,
+      );
+    }
+  });
+
+  it("includes shared /tools on the agent path", () => {
     const tools = requireCommandByName("tools");
     expectRecordFields(tools, "tools command", {
       key: "tools",
       description: "List available runtime tools.",
-      argOptions: ["compact", "verbose"],
       executeLocal: false,
     });
     expectParsedSlash("/tools verbose", { name: "tools" }, "verbose");
   });
+
+  // Commands that parse their own tail must never be stepped through a menu:
+  // the composer would serialize argument text the executor does not accept.
+  it.each(["exec", "queue", "config", "mcp", "debug", "plugins"])(
+    "hands /%s a free draft instead of a stepped menu",
+    (key) => {
+      expect(ownsRawArgumentTail(requireTypedCommand(key))).toBe(true);
+    },
+  );
 
   it("parses slash aliases through the shared registry", () => {
     const exportCommand = requireCommandByKey("export-session");
@@ -470,7 +517,73 @@ describe("parseSlashCommand", () => {
     expect(first.description).toBe("d".repeat(1_999));
     expect(first.args?.split(" ")).toHaveLength(20);
     expect(first.args?.split(" ")[0]).toBe("[" + "n".repeat(199) + "]");
-    expect(first.argOptions).toHaveLength(50);
+    const firstArgs = first.definition.args ?? [];
+    expect(firstArgs).toHaveLength(20);
+    expect(firstArgs[0]?.choices).toHaveLength(50);
+    expect(firstArgs[0]?.description).toBe("d".repeat(500));
+    expect(firstArgs.at(-1)?.choices).toHaveLength(50);
+  });
+
+  it("marks provider-dependent remote arguments as dynamic instead of dropping them", () => {
+    applyRemoteEntries([
+      {
+        name: "plugin-think",
+        textAliases: ["/plugin-think"],
+        description: "Plugin thinking control.",
+        source: "plugin",
+        scope: "both",
+        acceptsArgs: true,
+        args: [
+          {
+            name: "level",
+            description: "Thinking level",
+            type: "string",
+            required: true,
+            dynamic: true,
+          },
+        ],
+      },
+    ]);
+
+    // The client owns no resolver for a remote provider-dependent set, so the
+    // argument survives as a free value rather than advertising an empty menu.
+    const command = requireTypedCommand("plugin-think");
+    const level = expectDefined(getSlashCommandArgs(command)[0], "plugin-think level arg");
+    expect(level).toEqual({
+      name: "level",
+      description: "Thinking level",
+      type: "string",
+      required: true,
+    });
+    expect(resolveSlashCommandArgChoices(command, level)).toEqual([]);
+  });
+
+  it("keeps remote choice labels distinct from their values", () => {
+    applyRemoteEntries([
+      {
+        name: "plugin-fast",
+        textAliases: ["/plugin-fast"],
+        description: "Plugin fast mode.",
+        source: "plugin",
+        scope: "both",
+        acceptsArgs: true,
+        args: [
+          {
+            name: "mode",
+            description: "Fast mode",
+            type: "string",
+            choices: [{ value: "auto", label: "auto (45 sec)" }],
+          },
+        ],
+      },
+    ]);
+
+    const command = requireTypedCommand("plugin-fast");
+    const mode = expectDefined(getSlashCommandArgs(command)[0], "plugin-fast mode arg");
+    expect(mode.description).toBe("Fast mode");
+    expect(resolveSlashCommandArgChoices(command, mode)).toEqual([
+      { value: "auto", label: "auto (45 sec)" },
+    ]);
   });
 
   it("preserves only known closed plugin client presentation metadata", () => {

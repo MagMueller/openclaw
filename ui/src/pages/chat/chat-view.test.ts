@@ -16,6 +16,7 @@ import type { ExecApprovalRequest } from "../../app/exec-approval.ts";
 import type { UiSettings } from "../../app/settings.ts";
 import { i18n, t } from "../../i18n/index.ts";
 import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts";
+import { makeSlashCommand } from "../../lib/chat/commands.ln.ts";
 import {
   buildFallbackSlashCommands,
   replaceSlashCommands,
@@ -3594,10 +3595,9 @@ describe("chat slash menu accessibility", () => {
     replaceSlashCommands([
       ...buildFallbackSlashCommands(),
       ...skills.map(({ key, name = key, skillDisplayName, description }) => ({
+        ...makeSlashCommand(name, { description }),
         key,
-        name,
         skillDisplayName,
-        description,
         source: "skill" as const,
         skillModelVisible: true,
       })),
@@ -4238,20 +4238,16 @@ describe("chat slash menu accessibility", () => {
 
   it("shows every command directly without an expander or keyboard footer", () => {
     replaceSlashCommands([
-      {
-        key: "standard-command",
-        name: "standard-command",
+      makeSlashCommand("standard-command", {
         description: "Standard command.",
         tier: "standard",
         category: "session",
-      },
-      {
-        key: "power-command",
-        name: "power-command",
+      }),
+      makeSlashCommand("power-command", {
         description: "Power command.",
         tier: "power",
         category: "tools",
-      },
+      }),
     ]);
     const harness = createSlashRerenderHarness();
     const container = harness.inputAndRender(harness.container, "/");
@@ -4267,27 +4263,21 @@ describe("chat slash menu accessibility", () => {
 
   it("keeps filtered command DOM and keyboard order aligned with relevance", () => {
     replaceSlashCommands([
-      {
-        key: "pair",
-        name: "pair",
+      makeSlashCommand("pair", {
         description: "Pair a device.",
         tier: "power",
         category: "tools",
-      },
-      {
-        key: "pair-device",
-        name: "pair-device",
+      }),
+      makeSlashCommand("pair-device", {
         description: "Pair a specific device.",
         tier: "standard",
         category: "session",
-      },
-      {
-        key: "openclaw",
-        name: "openclaw",
+      }),
+      makeSlashCommand("openclaw", {
         description: "Run the setup and repair helper.",
         tier: "essential",
         category: "tools",
-      },
+      }),
     ]);
     const harness = createSlashRerenderHarness();
     let container = harness.inputAndRender(harness.container, "/pair");
@@ -4314,7 +4304,9 @@ describe("chat slash menu accessibility", () => {
 
     keydownComposer(container, "Enter");
     container = harness.renderCurrent();
-    expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("/pair-device ");
+    // No trailing space: this command declares no arguments, and a trailing
+    // space is the composer's signal that something still has to be typed.
+    expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("/pair-device");
     expect(container.querySelector(".slash-menu")).toBeNull();
   });
 

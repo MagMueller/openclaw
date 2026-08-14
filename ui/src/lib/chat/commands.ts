@@ -4,13 +4,34 @@ import { asNullableRecord as asRecord } from "@openclaw/normalization-core/recor
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { CommandEntry } from "../../../../packages/gateway-protocol/src/index.js";
-import { buildBuiltinChatCommands } from "../../../../src/auto-reply/commands-registry.shared.js";
+import type {
+  CommandArgChoiceScope,
+  ResolvedCommandArgChoice,
+} from "../../../../src/auto-reply/commands-invocation.js";
+import {
+  buildCommandText,
+  resolveCommandArgChoicesInScope,
+  serializeCommandArgs,
+} from "../../../../src/auto-reply/commands-invocation.js";
+import {
+  buildBuiltinChatCommands,
+  commandAcceptsArgs,
+  defineChatCommand,
+} from "../../../../src/auto-reply/commands-registry.shared.js";
+import type {
+  ChatCommandDefinition,
+  CommandArgDefinition,
+  CommandArgValues,
+} from "../../../../src/auto-reply/commands-registry.types.js";
 import { t } from "../../i18n/index.ts";
 
 export type SlashCommandCategory = "session" | "model" | "agents" | "tools";
 
 type SlashCommandTier = "essential" | "standard" | "power";
 type ChatIconName = string;
+
+/** One selectable value for a declared command argument. */
+export type SlashCommandArgChoice = ResolvedCommandArgChoice;
 
 export type SlashCommandDef = {
   key: string;
@@ -23,8 +44,12 @@ export type SlashCommandDef = {
   category?: SlashCommandCategory;
   /** When true, the command is executed client-side via RPC instead of sent to the agent. */
   executeLocal?: boolean;
-  /** Fixed argument choices for inline hints. */
-  argOptions?: string[];
+  /**
+   * Canonical invocation plan for this command. Argument collection, parsing and
+   * serialization read only this, so the composer applies the same rules as the
+   * server instead of rebuilding command semantics from a lossy projection.
+   */
+  definition: ChatCommandDefinition;
   /** Keyboard shortcut hint shown in the menu (display only). */
   shortcut?: string;
   /** Progressive disclosure tier. Defaults to "standard" when omitted. */
@@ -35,18 +60,49 @@ export type SlashCommandDef = {
   clientPresentation?: NonNullable<CommandEntry["clientPresentation"]>;
 };
 
-type LocalArgChoice = string | { value: string; label: string };
+/** Active model context used to resolve provider-dependent argument choices. */
+export type SlashCommandArgScope = CommandArgChoiceScope;
+
+/** Declared arguments of a command, in declaration order. */
+export function getSlashCommandArgs(command: SlashCommandDef): CommandArgDefinition[] {
+  return command.definition.args ?? [];
+}
+
+/** True when the command takes no arguments at all and must run bare. */
+export function acceptsSlashCommandArgs(command: SlashCommandDef): boolean {
+  return commandAcceptsArgs(command.definition);
+}
+
+/**
+ * True when the command parses its own raw argument tail. Its declared
+ * arguments describe the native registration surface only, so a stepped
+ * per-argument menu would serialize text the command never accepts.
+ */
+export function ownsRawArgumentTail(command: SlashCommandDef): boolean {
+  return command.definition.argsParsing === "none";
+}
+
+/** Resolves the options offered for one declared argument. */
+export function resolveSlashCommandArgChoices(
+  command: SlashCommandDef,
+  arg: CommandArgDefinition,
+  scope?: SlashCommandArgScope,
+): SlashCommandArgChoice[] {
+  return resolveCommandArgChoicesInScope({ command: command.definition, arg, scope });
+}
+
+/** Builds the slash-command text for collected values using the canonical serializer. */
+export function buildSlashCommandText(command: SlashCommandDef, values: CommandArgValues): string {
+  return buildCommandText(command.name, serializeCommandArgs(command.definition, { values }));
+}
 
 type CommandLike = {
+  /** Canonical plan the composer stages and serializes from. */
+  definition: ChatCommandDefinition;
   key: string;
   name: string;
   aliases?: string[];
   description: string;
-  args?: Array<{
-    name: string;
-    required?: boolean;
-    choices?: LocalArgChoice[];
-  }>;
   category?: string;
   tier?: string;
   source?: "native" | "plugin" | "skill";
@@ -63,6 +119,7 @@ const MAX_REMOTE_CHOICES = 50;
 const MAX_REMOTE_NAME_LENGTH = 200;
 const MAX_REMOTE_DESCRIPTION_LENGTH = 2_000;
 const MAX_REMOTE_ARG_NAME_LENGTH = 200;
+const MAX_REMOTE_ARG_DESCRIPTION_LENGTH = 500;
 
 const COMMAND_ICON_OVERRIDES: Partial<Record<string, ChatIconName>> = {
   help: "book",
@@ -112,6 +169,7 @@ const UI_ONLY_COMMANDS: SlashCommandDef[] = [
     name: "clear",
     description: "Clear chat history",
     descriptionKey: "chat.commands.clearDescription",
+    definition: defineChatCommand({ key: "clear", description: "Clear chat history" }),
     icon: "trash",
     category: "session",
     executeLocal: true,
@@ -123,6 +181,19 @@ const UI_ONLY_COMMANDS: SlashCommandDef[] = [
     description: "Abort and restart with a new message",
     descriptionKey: "chat.commands.redirectDescription",
     args: "<message>",
+    definition: defineChatCommand({
+      key: "redirect",
+      description: "Abort and restart with a new message",
+      args: [
+        {
+          name: "message",
+          description: "Replacement message",
+          type: "string",
+          required: true,
+          captureRemaining: true,
+        },
+      ],
+    }),
     icon: "refresh",
     category: "agents",
     executeLocal: true,
@@ -186,28 +257,11 @@ function getPrimarySlashName(command: CommandLike): string | null {
 }
 
 function formatArgs(command: CommandLike): string | undefined {
-  if (!command.args?.length) {
+  const args = command.definition.args;
+  if (!args?.length) {
     return undefined;
   }
-  return command.args
-    .map((arg) => {
-      const token = `<${arg.name}>`;
-      return arg.required ? token : `[${arg.name}]`;
-    })
-    .join(" ");
-}
-
-function choiceToValue(choice: LocalArgChoice): string {
-  return typeof choice === "string" ? choice : choice.value;
-}
-
-function getArgOptions(command: CommandLike): string[] | undefined {
-  const firstArg = command.args?.[0];
-  if (!firstArg) {
-    return undefined;
-  }
-  const options = firstArg.choices?.map(choiceToValue).filter(Boolean);
-  return options?.length ? options : undefined;
+  return args.map((arg) => (arg.required ? `<${arg.name}>` : `[${arg.name}]`)).join(" ");
 }
 
 function mapCategory(command: CommandLike): SlashCommandCategory {
@@ -260,7 +314,7 @@ function toSlashCommand(
     icon: mapIcon(command),
     category: mapCategory(command),
     executeLocal: source === "local" && LOCAL_COMMANDS.has(command.key),
-    argOptions: getArgOptions(command),
+    definition: command.definition,
     tier: source === "local" ? mapTier(command) : "standard",
     ...(resolvedSource ? { source: resolvedSource } : {}),
     ...(command.skillDisplayName ? { skillDisplayName: command.skillDisplayName } : {}),
@@ -297,10 +351,7 @@ function getEntryArgs(
     .filter((arg): arg is Record<string, unknown> => arg !== null);
 }
 
-function getArgChoices(arg: Record<string, unknown>): LocalArgChoice[] {
-  if (arg.dynamic === true) {
-    return [];
-  }
+function getArgChoices(arg: Record<string, unknown>): SlashCommandArgChoice[] {
   const rawChoices = arg.choices;
   if (!Array.isArray(rawChoices)) {
     return [];
@@ -308,23 +359,17 @@ function getArgChoices(arg: Record<string, unknown>): LocalArgChoice[] {
   return rawChoices
     .map((choice) => {
       if (typeof choice === "string") {
-        return clampText(choice, MAX_REMOTE_NAME_LENGTH);
+        const value = clampText(choice, MAX_REMOTE_NAME_LENGTH);
+        return { value, label: value };
       }
       const record = asRecord(choice);
       if (!record) {
         return null;
       }
-      return {
-        value: clampText(record.value, MAX_REMOTE_NAME_LENGTH),
-        label: clampText(record.label, MAX_REMOTE_NAME_LENGTH),
-      };
+      const value = clampText(record.value, MAX_REMOTE_NAME_LENGTH);
+      return { value, label: clampText(record.label, MAX_REMOTE_NAME_LENGTH) || value };
     })
-    .filter((choice): choice is LocalArgChoice => {
-      if (!choice) {
-        return false;
-      }
-      return typeof choice === "string" ? Boolean(choice) : Boolean(choice.value);
-    });
+    .filter((choice): choice is SlashCommandArgChoice => Boolean(choice?.value));
 }
 
 function normalizeClientPresentation(
@@ -355,15 +400,14 @@ function normalizeClientPresentation(
 function buildLocalSlashCommands(): SlashCommandDef[] {
   const builtins = buildBuiltinChatCommands()
     .map((command) => ({
+      // Builtins are browser-safe registry definitions, so the composer keeps the
+      // real plan (parsing, formatter, menu, dynamic choice providers) instead of
+      // a flattened copy that could only ever be resolved once, without context.
+      definition: command,
       key: command.key,
       name: command.textAliases[0]?.replace(/^\//u, "") ?? command.key,
       aliases: command.textAliases,
       description: command.description,
-      args: command.args?.map((arg) => ({
-        name: arg.name,
-        required: arg.required,
-        choices: Array.isArray(arg.choices) ? arg.choices : undefined,
-      })),
       category: command.category,
       tier: command.tier,
     }))
@@ -405,23 +449,36 @@ function normalizeCommandEntry(
     .slice(0, MAX_REMOTE_ARGS)
     .map((arg) => ({
       name: clampText(arg.name, MAX_REMOTE_ARG_NAME_LENGTH),
+      description: clampText(arg.description, MAX_REMOTE_ARG_DESCRIPTION_LENGTH),
       required: arg.required === true,
       choices: getArgChoices(arg).slice(0, MAX_REMOTE_CHOICES),
     }))
     .filter((arg) => arg.name.length > 0)
-    .map((arg) =>
-      Object.assign(
-        { name: arg.name },
-        arg.required ? { required: true } : {},
-        arg.choices.length > 0 ? { choices: arg.choices } : {},
-      ),
+    .map(
+      (arg): CommandArgDefinition =>
+        Object.assign(
+          // A remote argument only ever carries a static set: a provider-dependent
+          // one is marked dynamic and travels empty, which leaves it a free value.
+          { name: arg.name, description: arg.description, type: "string" as const },
+          arg.required ? { required: true } : {},
+          arg.choices.length > 0 ? { choices: arg.choices } : {},
+        ),
     );
+  const description = clampText(entry.description, MAX_REMOTE_DESCRIPTION_LENGTH);
   return {
+    // The catalog transports choices so clients can offer them; a remote command
+    // carries no argsMenu, so declared choices are what grants it one here.
+    definition: defineChatCommand({
+      key: primaryName,
+      description,
+      acceptsArgs: entry.acceptsArgs === true,
+      ...(args.length > 0 ? { args } : {}),
+      ...(args.some((arg) => arg.choices?.length) ? { argsMenu: "auto" as const } : {}),
+    }),
     key: primaryName,
     name: primaryName,
     aliases: aliases.map((alias) => `/${alias}`),
-    description: clampText(entry.description, MAX_REMOTE_DESCRIPTION_LENGTH),
-    ...(args.length > 0 ? { args } : {}),
+    description,
     category: typeof entry.category === "string" ? entry.category : undefined,
     source:
       entry.source === "native" || entry.source === "plugin" || entry.source === "skill"

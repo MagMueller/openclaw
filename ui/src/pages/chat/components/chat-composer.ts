@@ -28,14 +28,15 @@ import {
   updateSkillMenu,
 } from "./chat-composer-skill-menu.ts";
 import {
+  commitSlashArgValue,
   exportMarkdown,
   getActiveSlashMenuOptionId,
   getActiveSlashMenuOptionLabel,
+  getSlashArgDraftChoices,
   isSlashMenuVisible,
   paneDomId,
   resetSlashMenuState,
   scrollActiveSlashMenuOptionIntoView,
-  selectSlashArg,
   selectSlashCommand,
   tabCompleteSlashCommand,
   updateSlashMenu,
@@ -330,20 +331,17 @@ export function renderChatComposer(props: ChatComposerProps) {
       }
     }
 
-    if (
-      props.connected &&
-      state.slashMenuOpen &&
-      state.slashMenuMode === "args" &&
-      state.slashMenuArgItems.length > 0
-    ) {
+    // The textarea drives every stage: the command text lives in the draft, so
+    // the same keys pick from the current argument's options.
+    if (props.connected && state.slashMenuOpen && state.slashMenuStage) {
       if (
         handleComposerMenuKeyDown(
           event,
           state,
-          state.slashMenuArgItems,
+          getSlashArgDraftChoices(state),
           props.paneId,
           requestUpdate,
-          (arg, submit) => selectSlashArg(arg, props, requestUpdate, submit),
+          (choice) => commitSlashArgValue(choice.value, props, requestUpdate),
           scrollActiveSlashMenuOptionIntoView,
         )
       ) {
