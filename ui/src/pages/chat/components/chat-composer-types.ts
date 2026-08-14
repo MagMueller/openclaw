@@ -182,11 +182,6 @@ export type SlashArgStage = {
    * nothing. Cleared as soon as the operator types.
    */
   needsValue: boolean;
-  /**
-   * Set when the typed filter matched no option. Without it Enter on an unknown
-   * value is swallowed and the operator gets no explanation.
-   */
-  noMatch: boolean;
 };
 
 export type ChatComposerState = {

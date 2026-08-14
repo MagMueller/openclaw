@@ -194,7 +194,7 @@ suite.define(() => {
         await f.shot("bdyn1-think-levels");
 
         // Filtering narrows the resolved set rather than the command list.
-        await f.composer.fill("hi");
+        await f.composer.fill("/think hi");
         await expect.poll(() => f.optionLabels()).toEqual(["high", "xhigh"]);
         await f.shot("bdyn2-think-filtered");
 
@@ -220,21 +220,28 @@ suite.define(() => {
         await pickCommand(f, "/name");
         await f.composer.press("Enter");
         await f.menu.waitFor({ state: "visible" });
-        // The argument's own description becomes the prompt.
+        // The argument's own description becomes the prompt; a free-form value
+        // has no options behind it, so the stage header is the whole menu.
         await expect
-          .poll(() => f.composer.getAttribute("placeholder"))
+          .poll(() => f.stageHint.textContent())
           .toBe("New session name (omit to see a suggestion)");
-        await expect.poll(() => f.menu.count()).toBe(0);
+        await expect.poll(() => f.optionLabels()).toEqual([]);
         await f.shot("c1-value-placeholder");
 
-        await f.composer.fill("Release prep");
+        // `title` is declared captureRemaining, so the whole tail stays one value:
+        // the prompt must survive the space instead of committing "Release" and
+        // treating "prep" as a filter over options that do not exist.
+        await f.composer.fill("/name Release prep");
+        await expect
+          .poll(() => f.stageHint.textContent())
+          .toBe("New session name (omit to see a suggestion)");
         await f.shot("c2-value-typed");
 
         // Escape closes the menu and keeps the text: the draft is the command,
         // so dismissing the option list must never throw away the operator's work.
         await f.composer.press("Escape");
         await expect.poll(() => f.menu.count()).toBe(0);
-        await expect.poll(() => f.composer.inputValue()).toBe("Release prep");
+        await expect.poll(() => f.composer.inputValue()).toBe("/name Release prep");
         await expect
           .poll(() => f.composer.evaluate((node) => document.activeElement === node))
           .toBe(true);
@@ -244,7 +251,7 @@ suite.define(() => {
         await pickCommand(f, "/name");
         await f.composer.press("Enter");
         await f.menu.waitFor({ state: "visible" });
-        await f.composer.fill("Release prep");
+        await f.composer.fill("/name Release prep");
         await f.composer.press("Enter");
         await f.gateway.waitForRequest("chat.send");
         expect(await f.sentMessages()).toEqual(["/name Release prep"]);
@@ -260,8 +267,7 @@ suite.define(() => {
         await pickCommand(f, "/redirect");
         await f.composer.press("Enter");
         await f.menu.waitFor({ state: "visible" });
-        // /redirect declares no description, so the generic prompt fills in.
-        await expect.poll(() => f.composer.getAttribute("placeholder")).toBe("Enter message");
+        await expect.poll(() => f.stageHint.textContent()).toBe("Replacement message");
         await expect.poll(() => f.composer.getAttribute("aria-required")).toBe("true");
         await f.shot("creq1-required-empty");
 
@@ -274,9 +280,10 @@ suite.define(() => {
         await expect.poll(() => f.composer.getAttribute("aria-invalid")).toBe("true");
         await f.shot("creq2-refused");
 
-        // Typing clears the refusal instead of leaving a stale warning behind.
-        await f.composer.fill("wrap it up");
-        await expect.poll(() => f.stageHint.textContent()).toBe("message");
+        // Typing clears the refusal instead of leaving a stale warning behind,
+        // and the multi-word tail stays one captureRemaining value.
+        await f.composer.fill("/redirect wrap it up");
+        await expect.poll(() => f.stageHint.textContent()).toBe("Replacement message");
         await expect.poll(() => f.composer.getAttribute("aria-invalid")).toBe(null);
         await f.shot("creq3-recovered");
       });
@@ -298,12 +305,12 @@ suite.define(() => {
         await f.composer.press("Enter");
         expect(await f.sentMessages()).toEqual([]);
         await expect.poll(() => f.stagePrefix.textContent()).toBe("/session idle");
-        await expect
-          .poll(() => f.composer.getAttribute("placeholder"))
-          .toBe("Duration (24h, 90m) or off");
+        // The second declared argument's description is the prompt for it.
+        await expect.poll(() => f.stageHint.textContent()).toBe("Duration (24h, 90m) or off");
         await f.shot("d2-value-stage");
 
-        await f.composer.fill("24h");
+        await f.composer.fill("/session idle 24h");
+        await expect.poll(() => f.stagePrefix.textContent()).toBe("/session idle");
         await f.shot("d3-duration-typed");
 
         await f.composer.press("Enter");
@@ -363,16 +370,27 @@ suite.define(() => {
         await f.composer.press("Enter");
         await f.menu.waitFor({ state: "visible" });
 
+        // One input: the message textarea is the combobox, so it owns the role,
+        // the listbox wiring, and the argument's accessible name.
         expect(await f.composer.getAttribute("role")).toBe("combobox");
         expect(await f.composer.getAttribute("aria-expanded")).toBe("true");
         expect(await f.composer.getAttribute("aria-controls")).toBeTruthy();
         expect(await f.composer.getAttribute("aria-activedescendant")).toBeTruthy();
         expect(await f.composer.getAttribute("aria-label")).toBe("Value for action");
-        // The textarea must not advertise a listbox it no longer drives.
+        await f.shot("a11y1-staged-combobox");
+
+        // Dispatching consumes the draft, so the stage's ARIA must go with it
+        // rather than leaving the textarea pointing at a listbox that is gone.
+        await f.composer.press("Enter");
+        await f.composer.fill("/session idle 24h");
+        await f.composer.press("Enter");
+        await f.gateway.waitForRequest("chat.send");
+        await expect.poll(() => f.menu.count()).toBe(0);
+        expect(await f.composer.getAttribute("role")).toBeNull();
         expect(await f.composer.getAttribute("aria-controls")).toBeNull();
         expect(await f.composer.getAttribute("aria-expanded")).toBeNull();
         expect(await f.composer.getAttribute("aria-activedescendant")).toBeNull();
-        await f.shot("a11y1-staged-combobox");
+        await f.shot("a11y2-cleared-after-dispatch");
       });
     });
   }

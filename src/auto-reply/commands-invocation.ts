@@ -74,6 +74,32 @@ function formatPositionalArgs(
   return parts.length > 0 ? parts.join(" ") : undefined;
 }
 
+/**
+ * Splits a raw argument tail into the part already committed to preceding
+ * arguments and the segment still being typed, for editors that must know which
+ * argument the caret sits in. Mirrors {@link parsePositionalArgs}: a
+ * `captureRemaining` argument owns everything left in the tail, so its value is
+ * never chopped at a space the way a choice filter is.
+ */
+export function splitCommandArgDraft(
+  command: ChatCommandDefinition,
+  tail: string,
+): { committed: string; input: string } {
+  const tokens = tail.split(/\s+/u).filter(Boolean);
+  const typingLastToken = !/\s$/u.test(tail);
+  let index = 0;
+  for (const definition of command.args ?? []) {
+    if (definition.captureRemaining || index >= tokens.length) {
+      break;
+    }
+    if (typingLastToken && index === tokens.length - 1) {
+      break;
+    }
+    index += 1;
+  }
+  return { committed: tokens.slice(0, index).join(" "), input: tokens.slice(index).join(" ") };
+}
+
 /** Parses raw command arguments according to the command definition. */
 export function parseCommandArgs(
   command: ChatCommandDefinition,

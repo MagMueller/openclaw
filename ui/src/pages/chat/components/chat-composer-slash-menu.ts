@@ -1,5 +1,8 @@
 import { html, nothing, type TemplateResult } from "lit";
-import { parseCommandArgs } from "../../../../../src/auto-reply/commands-invocation.js";
+import {
+  parseCommandArgs,
+  splitCommandArgDraft,
+} from "../../../../../src/auto-reply/commands-invocation.js";
 import type { CommandArgValues } from "../../../../../src/auto-reply/commands-registry.types.js";
 import { icons, type IconName } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
@@ -92,7 +95,6 @@ function buildSlashArgStage(
       choices: resolveSlashCommandArgChoices(command, arg, scope),
       input: "",
       needsValue: false,
-      noMatch: false,
     };
   }
   return null;
@@ -274,18 +276,19 @@ export function updateSlashMenu(
     closeSlashMenuIfNeeded(state, requestUpdate);
     return;
   }
-  // The token still being typed is a filter over the next argument's options,
-  // not a committed value, so it is held back from the parsed set.
-  const tail = argMatch[2] ?? "";
-  const tokens = tail.split(/\s+/u).filter(Boolean);
-  const filter = /\s$/u.test(tail) ? "" : (tokens.pop() ?? "");
-  const parsed = parseCommandArgs(command.definition, tokens.join(" "));
+  // The segment still being typed filters the current argument's options rather
+  // than committing a value, so it is held back from the parsed set. The split
+  // follows the executor's own rule: an argument declared captureRemaining owns
+  // the whole tail, so `/name Release prep` keeps typing one title instead of
+  // committing "Release" and filtering on "prep".
+  const { committed, input } = splitCommandArgDraft(command.definition, argMatch[2] ?? "");
+  const parsed = parseCommandArgs(command.definition, committed);
   const stage = buildSlashArgStage(command, parsed?.values ?? {}, props);
   if (!stage) {
     closeSlashMenuIfNeeded(state, requestUpdate);
     return;
   }
-  stage.input = filter;
+  stage.input = input;
   state.slashMenuStage = stage;
   state.slashMenuItems = [];
   state.slashMenuIndex = 0;
@@ -336,6 +339,44 @@ export function getSlashArgDraftChoices(state: ChatComposerState): SlashCommandA
     return [];
   }
   return getSlashStageChoices(stage);
+}
+
+/**
+ * Records a refused submit when the pending argument is required and still
+ * empty. Returns true when the key was consumed, so the caller stops before the
+ * send path turns a missing value into a bare command.
+ */
+export function refuseEmptyRequiredSlashArg(
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+): boolean {
+  const state = getChatComposerState(props.paneId);
+  const stage = state.slashMenuStage;
+  if (!stage || stage.arg.required !== true || stage.input.trim().length > 0) {
+    return false;
+  }
+  stage.needsValue = true;
+  requestUpdate();
+  return true;
+}
+
+/**
+ * ARIA the message textarea must carry while it collects a command argument.
+ * With one input, the textarea is the combobox, so the argument's label and its
+ * refusal state have to be announced there or they are announced nowhere.
+ */
+export function getSlashArgTextareaAria(
+  state: ChatComposerState,
+): { label: string; required: boolean; invalid: boolean } | null {
+  const stage = state.slashMenuStage;
+  if (!state.slashMenuOpen || !stage) {
+    return null;
+  }
+  return {
+    label: t("chat.commands.argValueLabel", { arg: stage.arg.name }),
+    required: stage.arg.required === true,
+    invalid: stage.needsValue,
+  };
 }
 
 export function isSlashMenuVisible(state: ChatComposerState): boolean {
@@ -439,10 +480,10 @@ function getSlashArgHint(stage: SlashArgStage): string {
   if (stage.needsValue) {
     return t("chat.commands.argNeedsValue");
   }
-  if (stage.noMatch) {
-    return t("chat.commands.argNoMatch", { value: stage.input.trim() });
-  }
-  return stage.arg.name;
+  // The declared description is what tells the operator what to type
+  // ("Duration (24h, 90m) or off"); the bare argument name is the fallback for
+  // arguments that declare none.
+  return stage.arg.description || stage.arg.name;
 }
 
 function renderSlashArgOptions(
@@ -453,7 +494,7 @@ function renderSlashArgOptions(
   listboxId: string,
 ): TemplateResult | typeof nothing {
   const choices = getSlashStageChoices(stage);
-  const refused = stage.needsValue || stage.noMatch;
+  const refused = stage.needsValue;
   return html`
     <div
       id=${listboxId}

@@ -63,6 +63,7 @@ type ChatComposerViewContext = {
   runControlsProps: ChatRunControlsProps;
   mirrorCameraPreview: boolean;
   slashMenuVisible: boolean;
+  slashArgAria: { label: string; required: boolean; invalid: boolean } | null;
   skillMenuVisible: boolean;
   activeSlashMenuOptionId: string | null;
   activeSlashMenuOptionLabel: string;
@@ -98,6 +99,7 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
     runControlsProps,
     mirrorCameraPreview,
     slashMenuVisible,
+    slashArgAria,
     skillMenuVisible,
     activeSlashMenuOptionId,
     activeSlashMenuOptionLabel,
@@ -105,8 +107,10 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
     slashMenuAnnouncementId,
     composerRunStatus,
   } = context;
-  // While arguments are staged the staged input is the combobox, so the message
-  // textarea must not also advertise the same listbox to assistive tech.
+  // The textarea is the only input, so it carries the listbox wiring for both
+  // menus. It claims the combobox role only while an argument stage gives it a
+  // value set to pick from (`slashArgAria`); command and skill completion keep
+  // the shipped autocomplete hints without changing the textarea's role.
   const textareaComboboxVisible = slashMenuVisible || skillMenuVisible;
   const disabledBanner = props.disabledBanner
     ? html`
@@ -424,6 +428,10 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
                   ?disabled=${!canCompose}
                   ?readonly=${dictation?.locksComposer === true}
                   aria-autocomplete="list"
+                  role=${ifDefined(slashArgAria ? "combobox" : undefined)}
+                  aria-label=${ifDefined(slashArgAria?.label)}
+                  aria-required=${ifDefined(slashArgAria?.required ? "true" : undefined)}
+                  aria-invalid=${ifDefined(slashArgAria?.invalid ? "true" : undefined)}
                   aria-controls=${ifDefined(
                     textareaComboboxVisible ? slashMenuListboxId : undefined,
                   )}

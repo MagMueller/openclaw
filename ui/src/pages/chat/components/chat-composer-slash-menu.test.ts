@@ -122,7 +122,7 @@ describe("slash command argument staging", () => {
         .options()
         .map((option) => option.querySelector(".slash-menu-name")?.textContent?.trim()),
     ).toEqual(["compact", "verbose"]);
-    expect(harness.hint()).toBe("mode");
+    expect(harness.hint()).toBe("compact or verbose");
     expect(harness.sent).toEqual([]);
   });
 
@@ -173,11 +173,34 @@ describe("slash command argument staging", () => {
     openCommand(harness, requireCommand("name"));
 
     expect(harness.stage()?.choices).toEqual([]);
-    expect(harness.hint()).toBe("title");
+    expect(harness.hint()).toBe("New session name (omit to see a suggestion)");
 
     harness.pick("release prep");
 
     expect(harness.sent).toEqual(["/name release prep"]);
+  });
+
+  it("keeps a captureRemaining argument collecting across spaces", () => {
+    const harness = createHarness();
+    harness.type("/name Release prep");
+
+    // /name declares title as captureRemaining, so the executor takes the whole
+    // tail. Popping the last token as a choice filter committed "Release" and
+    // closed the prompt mid-word, leaving the operator typing at a menu that had
+    // silently decided the argument was already satisfied.
+    expect(harness.stage()?.arg.name).toBe("title");
+    expect(harness.stage()?.input).toBe("Release prep");
+    expect(harness.prefix()).toBe("/name");
+  });
+
+  it("commits a fixed argument before a captureRemaining tail", () => {
+    const harness = createHarness();
+    harness.type("/session idle 24 hours");
+
+    // Only the trailing argument is greedy: action is still matched positionally.
+    expect(harness.stage()?.arg.name).toBe("value");
+    expect(harness.stage()?.input).toBe("24 hours");
+    expect(harness.prefix()).toBe("/session idle");
   });
 
   it("derives the same stage from a hand-typed command tail", () => {
@@ -232,7 +255,7 @@ describe("slash command argument staging", () => {
     );
 
     expect(harness.stage()?.choices).toEqual([]);
-    expect(harness.hint()).toBe("level");
+    expect(harness.hint()).toBe("Thinking level");
 
     harness.pick("high");
     expect(harness.sent).toEqual(["/plugin-think high"]);
