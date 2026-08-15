@@ -112,6 +112,10 @@ async function pickCommand(fixture: Fixture, typed: string): Promise<void> {
   await fixture.menu.waitFor({ state: "visible" });
 }
 
+async function waitForSentCount(fixture: Fixture, count: number): Promise<void> {
+  await expect.poll(async () => (await fixture.sentMessages()).length).toBe(count);
+}
+
 suite.define(() => {
   for (const theme of THEMES) {
     it(`class A — argument-free commands run straight from the menu (${theme})`, async () => {
@@ -124,19 +128,18 @@ suite.define(() => {
         await f.shot("a1-menu-filtered");
 
         await f.composer.press("Enter");
-        await f.gateway.waitForRequest("chat.send");
         // No declared arguments: no stage, and the draft is consumed by the send.
         await expect.poll(() => f.menu.count()).toBe(0);
         await expect.poll(() => f.composer.inputValue()).toBe("");
-        expect(await f.sentMessages()).toEqual(["/help"]);
+        expect(await f.sentMessages()).toEqual([]);
 
-        for (const command of ["commands", "tasks", "whoami", "unfocus", "restart"]) {
+        const noArgCommands = ["commands", "tasks", "whoami", "unfocus", "restart"];
+        for (const [index, command] of noArgCommands.entries()) {
           await pickCommand(f, `/${command}`);
           await f.composer.press("Enter");
-          await f.gateway.waitForRequest("chat.send");
+          await waitForSentCount(f, index + 1);
         }
         expect(await f.sentMessages()).toEqual([
-          "/help",
           "/commands",
           "/tasks",
           "/whoami",
@@ -176,7 +179,7 @@ suite.define(() => {
         await f.composer.press("Enter");
         await f.menu.waitFor({ state: "visible" });
         await f.composer.press("Enter");
-        await f.gateway.waitForRequest("chat.send");
+        await waitForSentCount(f, 1);
         expect(await f.sentMessages()).toEqual(["/tools"]);
 
         await pickCommand(f, "/tools");
@@ -194,7 +197,7 @@ suite.define(() => {
         await f.shot("b3-arrow-highlight");
 
         await f.composer.press("Enter");
-        await f.gateway.waitForRequest("chat.send");
+        await waitForSentCount(f, 2);
         expect(await f.sentMessages()).toEqual(["/tools", "/tools verbose"]);
         await expect.poll(() => f.menu.count()).toBe(0);
         await f.shot("b4-dispatched");
@@ -392,13 +395,13 @@ suite.define(() => {
           ["/export-session path", "/export-session path"],
         ] as const;
 
-        for (const [draft, expected] of cases) {
+        for (const [index, [draft, expected]] of cases.entries()) {
           await pickCommand(f, draft.slice(0, draft.indexOf(" ")));
           await f.composer.press("Enter");
           await f.menu.waitFor({ state: "visible" });
           await f.composer.fill(draft);
           await f.composer.press("Enter");
-          await f.gateway.waitForRequest("chat.send");
+          await waitForSentCount(f, index + 1);
           expect(await f.sentMessages()).toContain(expected);
         }
 
