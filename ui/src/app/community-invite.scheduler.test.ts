@@ -59,8 +59,11 @@ function installWebLocks(): void {
   });
 }
 
-function start(hasSessions = true): () => void {
-  const dispose = runCommunityInvite(hasSessions);
+function start(
+  hasInteractionHistory = true,
+  isEligibleNow: () => boolean = () => true,
+): () => void {
+  const dispose = runCommunityInvite(hasInteractionHistory, isEligibleNow);
   stops.push(dispose);
   return dispose;
 }
@@ -101,6 +104,7 @@ beforeEach(() => {
   visibility = "visible";
   focused = true;
   lockHolders = new Set();
+  document.openClawModalToastLayers = new Set();
   Object.defineProperty(document, "visibilityState", {
     configurable: true,
     get: () => visibility,
@@ -119,6 +123,7 @@ afterEach(() => {
   // lock manager would silently decide the next test.
   Reflect.deleteProperty(document, "activeElement");
   Reflect.deleteProperty(navigator, "locks");
+  Reflect.deleteProperty(document, "openClawModalToastLayers");
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -340,5 +345,90 @@ describe("community invite showing protocol", () => {
     expect(lockHolders.size).toBe(0);
     await runToPresentation();
     expect(mountedCards()).toBe(1);
+  });
+});
+
+describe("community invite live eligibility", () => {
+  // The shell's cohort qualification is a one-shot latch decided at first sight
+  // (see app-host.ts), but the shell can still disconnect from the Gateway or
+  // fall back into onboarding afterward. `isEligibleNow` is how it reports that
+  // live, and both scenarios must keep the card from ever mounting even though
+  // the load already qualified and dwell already elapsed.
+  const shellTransitions: ReadonlyArray<{ name: string }> = [
+    { name: "the Gateway disconnects before dwell completes" },
+    { name: "the shell returns to onboarding before dwell completes" },
+  ];
+
+  for (const { name } of shellTransitions) {
+    it(`never presents once ${name}`, async () => {
+      seedRecord();
+      let eligible = true;
+      start(true, () => eligible);
+
+      await vi.advanceTimersByTimeAsync(DWELL_MS / 2);
+      eligible = false;
+      await vi.advanceTimersByTimeAsync(DWELL_MS / 2);
+      await flushPresentation();
+      expect(mountedCards()).toBe(0);
+
+      // Focus churn alone cannot recover it either: the gate stays live and
+      // stays closed until the shell itself reports eligibility again.
+      document.dispatchEvent(new Event("focusout"));
+      await flushPresentation();
+      expect(mountedCards()).toBe(0);
+    });
+  }
+
+  it("defers presentation while a modal is open, then presents once it closes", async () => {
+    seedRecord();
+    document.openClawModalToastLayers = new Set([document.createElement("div")]);
+    start();
+
+    await vi.advanceTimersByTimeAsync(DWELL_MS);
+    await flushPresentation();
+    expect(mountedCards()).toBe(0);
+
+    document.openClawModalToastLayers.clear();
+    document.dispatchEvent(new Event("focusout"));
+    await flushPresentation();
+    expect(mountedCards()).toBe(1);
+  });
+
+  it("defers presentation while a toast is active, then presents once it clears", async () => {
+    seedRecord();
+    const toast = document.createElement("div");
+    toast.className = "app-toast";
+    document.body.append(toast);
+    start();
+
+    await vi.advanceTimersByTimeAsync(DWELL_MS);
+    await flushPresentation();
+    expect(mountedCards()).toBe(0);
+
+    toast.remove();
+    document.dispatchEvent(new Event("focusout"));
+    await flushPresentation();
+    expect(mountedCards()).toBe(1);
+  });
+
+  it("never burns the tombstone for a state that turns unquiet during the chunk import", async () => {
+    seedRecord();
+    // The chunk import and the claim both cross an await after tryPresent's
+    // synchronous check already passed. Answering true only the first time
+    // stands in for a modal, a toast, a disconnect, or a new run arriving in
+    // that exact gap: whichever one it is, `present()` must re-check and refuse
+    // rather than mount a card and burn the one-shot tombstone on it.
+    let calls = 0;
+    start(true, () => {
+      calls += 1;
+      return calls === 1;
+    });
+
+    await vi.advanceTimersByTimeAsync(DWELL_MS);
+    await flushPresentation();
+
+    expect(calls).toBeGreaterThan(1);
+    expect(mountedCards()).toBe(0);
+    expect(storedRecord()?.shownAtMs).toBeUndefined();
   });
 });

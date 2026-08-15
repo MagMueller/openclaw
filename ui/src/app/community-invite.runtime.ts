@@ -9,6 +9,7 @@
 // behind. Dismiss and join only enrich that record; they do not own suppression.
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { CONTROL_UI_BUILD_INFO } from "../build-info.ts";
+import { hasActiveToast } from "../lib/toast.ts";
 import { getSafeLocalStorage } from "../local-storage.ts";
 
 export const COMMUNITY_INVITE_KEY = "openclaw:control-ui:community-invite:v1";
@@ -134,13 +135,15 @@ export function communityInviteReadiness(
 /** Records this load against the stored history and reports the resulting record. */
 export function recordQualifiedLoad(
   previous: CommunityInviteRecord | null,
-  hasSessions: boolean,
+  hasInteractionHistory: boolean,
   nowMs: number,
 ): CommunityInviteRecord {
   if (!previous) {
-    // The very first sighting classifies the operator. Existing sessions mean this
-    // browser met an install that was already in use, i.e. an upgrade.
-    return { firstQualifiedAtMs: nowMs, qualifiedLoads: 1, established: hasSessions };
+    // The very first sighting classifies the operator. A session already carrying
+    // a real recorded interaction means this browser met an install that was
+    // already in active use, i.e. an upgrade — not merely one that happened to
+    // have a session object on record.
+    return { firstQualifiedAtMs: nowMs, qualifiedLoads: 1, established: hasInteractionHistory };
   }
   return { ...previous, qualifiedLoads: previous.qualifiedLoads + 1 };
 }
@@ -204,15 +207,30 @@ export async function claimCommunityInviteShowing(): Promise<boolean> {
   }
 }
 
-/** Starts the invite for a load the shell has already qualified. Returns the
- * disposer the shell owns. */
-export function runCommunityInvite(hasSessions: boolean): () => void {
+/** True while any modal dialog is open. The card must never mount over one — a
+ * modal traps focus and blocks whatever the operator is doing, so presenting
+ * under it would burn the one-shot tombstone on a card nobody could see or
+ * reach. Reads the same registry `modal-dialog.ts` keeps for toast handoff,
+ * which every open `openclaw-modal-dialog` is already a member of. */
+export function attentionModalOpen(): boolean {
+  return (document.openClawModalToastLayers?.size ?? 0) > 0;
+}
+
+/** Starts the invite for a load the shell has already qualified. `isEligibleNow`
+ * is checked live at presentation time, not only here: it covers state that can
+ * change after this load qualified (gateway connectivity, onboarding, an active
+ * run or subagent elsewhere), which this one-shot start-up call cannot see in
+ * advance. Returns the disposer the shell owns. */
+export function runCommunityInvite(
+  hasInteractionHistory: boolean,
+  isEligibleNow: () => boolean,
+): () => void {
   const previous = readCommunityInviteRecord();
   if (previous?.shownAtMs !== undefined) {
     return () => undefined;
   }
   const now = Date.now();
-  const record = recordQualifiedLoad(previous, hasSessions, now);
+  const record = recordQualifiedLoad(previous, hasInteractionHistory, now);
   writeCommunityInviteRecord(record);
   if (communityInviteReadiness(record, now) !== "ready") {
     return () => undefined;
@@ -242,13 +260,27 @@ export function runCommunityInvite(hasSessions: boolean): () => void {
     }
   };
 
+  /** Every condition that must hold at the instant the card is claimed and
+   * mounted, not only when the dwell timer first fires: the chunk import and the
+   * claim below both cross an await, and a modal, a toast, a disconnect, or a
+   * newly active run can all arrive in that gap. Re-checking here — not just in
+   * `tryPresent` — is what keeps the tombstone from burning under a state that
+   * changed mid-flight. */
+  const isQuietAndEligible = () =>
+    dwellSatisfied &&
+    operatorIsPresent() &&
+    !editableElementFocused() &&
+    !attentionModalOpen() &&
+    !hasActiveToast() &&
+    isEligibleNow();
+
   const present = async () => {
     // Load the card first and claim second: a failed chunk fetch must not burn the
     // one showing this browser gets, and once the claim lands the card reaches the
     // DOM in the same task.
     const { COMMUNITY_INVITE_SETTLED_EVENT } =
       await import("../components/community-invite-dialog.ts");
-    if (disposed || !(await claimCommunityInviteShowing())) {
+    if (disposed || !isQuietAndEligible() || !(await claimCommunityInviteShowing())) {
       return;
     }
     const mounted = document.createElement("openclaw-community-invite-dialog");
@@ -268,11 +300,12 @@ export function runCommunityInvite(hasSessions: boolean): () => void {
   };
 
   const tryPresent = () => {
-    if (disposed || presented || !dwellSatisfied) {
-      return;
-    }
-    if (!operatorIsPresent() || editableElementFocused()) {
-      // No retry timer: the next visibility/focus event brings us back here.
+    if (disposed || presented || !isQuietAndEligible()) {
+      // No retry timer: the next visibility/focus event brings us back here. A
+      // run/subagent finishing or a modal closing with no accompanying
+      // visibility/focus event will not itself re-trigger a check — an accepted
+      // gap, since ordinary tab use produces those events often enough to close
+      // it, and the invite has no urgency that would justify polling for it.
       return;
     }
     presented = true;
