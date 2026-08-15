@@ -77,7 +77,9 @@ async function openChat(page: Page, theme: Theme, sessionId: string): Promise<Fi
     // the shell with the menu whenever the menu is open.
     shot: async (name: string) => {
       const shell = await page.locator(".agent-chat__composer-shell").boundingBox();
-      if (!shell) throw new Error(`composer shell not visible for shot ${name}`);
+      if (!shell) {
+        throw new Error(`composer shell not visible for shot ${name}`);
+      }
       const popup = (await menu.isVisible()) ? await menu.boundingBox() : null;
       const top = Math.min(shell.y, popup?.y ?? shell.y);
       const bottom = Math.max(shell.y + shell.height, (popup?.y ?? 0) + (popup?.height ?? 0));
