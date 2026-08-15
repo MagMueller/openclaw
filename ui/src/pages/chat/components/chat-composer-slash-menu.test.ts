@@ -115,6 +115,14 @@ describe("slash command argument staging", () => {
     expect(harness.sent).toEqual(["/help"]);
   });
 
+  it("submits a bare raw-tail command so it cannot disappear as a draft", () => {
+    const harness = createHarness();
+    openCommand(harness, requireCommand("btw"));
+
+    expect(harness.sent).toEqual(["/btw"]);
+    expect(harness.draft()).toBe("");
+  });
+
   it("puts the real command text in the draft when a stage opens", () => {
     const harness = createHarness();
     openCommand(harness, requireCommand("tools"));
