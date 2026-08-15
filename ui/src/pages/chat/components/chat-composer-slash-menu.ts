@@ -392,23 +392,6 @@ export function getSlashArgDraftChoices(state: ChatComposerState): SlashCommandA
 }
 
 /**
- * Records a refused submit when the pending argument is required and still
- * empty. Returns true when the key was consumed, so the caller stops before the
- * send path turns a missing value into a bare command.
- */
-function refuseEmptyRequiredSlashArg(props: ChatComposerProps, requestUpdate: () => void): boolean {
-  const state = getChatComposerState(props.paneId);
-  const stage = state.slashMenuStage;
-  if (!stage || stage.arg.required !== true || stage.input.trim().length > 0) {
-    return false;
-  }
-  stage.needsValue = true;
-  stage.invalidChoice = false;
-  requestUpdate();
-  return true;
-}
-
-/**
  * Owns Enter/Tab while an argument stage is active. Optional choices submit the
  * bare command, required choices accept the highlighted item, and a filtered
  * empty list reports the invalid input instead of falling through to send.
@@ -449,7 +432,9 @@ export function handleSlashArgKeyDown(
   }
   event.preventDefault();
   if (stage.arg.required === true) {
-    refuseEmptyRequiredSlashArg(props, requestUpdate);
+    stage.needsValue = true;
+    stage.invalidChoice = false;
+    requestUpdate();
   } else {
     commitSlashArgValue("", props, requestUpdate);
   }
