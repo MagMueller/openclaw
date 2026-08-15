@@ -133,6 +133,13 @@ function getSlashStagePrefix(stage: SlashArgStage): string {
   return buildSlashCommandText(stage.command, stage.values);
 }
 
+function submitSlashCommandText(commandText: string, props: ChatComposerProps): void {
+  props.onSend(commandText);
+  // The override is authoritative for the send owner, so it intentionally does
+  // not clear host state. The staged composer owns that draft and clears it here.
+  commitComposerDraft(props, "");
+}
+
 function openSlashArgStage(
   stage: SlashArgStage,
   props: ChatComposerProps,
@@ -174,7 +181,7 @@ function runStagedSlashCommand(
   resetSlashMenuState(state);
   const commandText = buildSlashCommandText(command, values);
   commitComposerDraft(props, commandText);
-  props.onSend(commandText);
+  submitSlashCommandText(commandText, props);
   queueMicrotask(() => state.composerTextarea?.focus({ preventScroll: true }));
   requestUpdate();
 }
@@ -232,7 +239,7 @@ function beginSlashCommand(
     const commandText = `/${cmd.name}`;
     commitComposerDraft(props, commandText);
     if (submit) {
-      props.onSend(commandText);
+      submitSlashCommandText(commandText, props);
     }
     requestUpdate();
     return;
