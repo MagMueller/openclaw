@@ -27,6 +27,7 @@ import {
   selectSkillMention,
   updateSkillMenu,
 } from "./chat-composer-skill-menu.ts";
+import { handleComposerMenuKeyDown } from "./chat-composer-menu.ts";
 import {
   commitSlashArgValue,
   exportMarkdown,
@@ -55,68 +56,11 @@ import {
   releaseMicrophoneDeviceWatch,
   suppressStaleSubmittedDraftReplay,
 } from "./chat-composer-state.ts";
-import type { ChatComposerProps, ChatComposerState } from "./chat-composer-types.ts";
+import type { ChatComposerProps } from "./chat-composer-types.ts";
 import { renderChatComposerView } from "./chat-composer-view.ts";
 import { createGatewayQuestionPanelProps } from "./chat-question-card.ts";
 
 export { isChatRunWorking, resetChatComposerState } from "./chat-composer-state.ts";
-
-function handleComposerMenuKeyDown<T>(
-  event: KeyboardEvent,
-  state: ChatComposerState,
-  items: readonly T[],
-  paneId: string,
-  requestUpdate: () => void,
-  onSelect: (item: T, submit: boolean) => void,
-  scrollActive: (state: ChatComposerState, paneId: string) => void,
-  menu: "slash" | "skill" = "slash",
-): boolean {
-  if (event.key === "Escape") {
-    event.preventDefault();
-    if (menu === "skill") {
-      resetSkillMenuState(state);
-    } else {
-      state.slashMenuOpen = false;
-      resetSlashMenuState(state);
-    }
-    requestUpdate();
-    return true;
-  }
-  if (items.length === 0) {
-    if (
-      menu === "skill" &&
-      state.skillCommandRefreshPending &&
-      ["ArrowDown", "ArrowUp", "Enter", "Tab"].includes(event.key)
-    ) {
-      event.preventDefault();
-      return true;
-    }
-    return false;
-  }
-  const indexKey = menu === "skill" ? "skillMenuIndex" : "slashMenuIndex";
-  switch (event.key) {
-    case "ArrowDown":
-    case "ArrowUp": {
-      event.preventDefault();
-      const offset = event.key === "ArrowDown" ? 1 : items.length - 1;
-      state[indexKey] = (state[indexKey] + offset) % items.length;
-      requestUpdate();
-      scrollActive(state, paneId);
-      return true;
-    }
-    case "Tab":
-    case "Enter": {
-      event.preventDefault();
-      const item = items[state[indexKey]];
-      if (item !== undefined) {
-        onSelect(item, event.key === "Enter");
-      }
-      return true;
-    }
-    default:
-      return false;
-  }
-}
 
 export function renderChatComposer(props: ChatComposerProps) {
   const state = getChatComposerState(props.paneId);
