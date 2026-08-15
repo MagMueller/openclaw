@@ -18,6 +18,7 @@ import {
   restoreHistoryCaret,
   scheduleTextareaHeightAdjustment,
 } from "./chat-composer-dom.ts";
+import { handleComposerMenuKeyDown } from "./chat-composer-menu.ts";
 import {
   getActiveSkillMenuOptionId,
   getActiveSkillMenuOptionLabel,
@@ -27,7 +28,6 @@ import {
   selectSkillMention,
   updateSkillMenu,
 } from "./chat-composer-skill-menu.ts";
-import { handleComposerMenuKeyDown } from "./chat-composer-menu.ts";
 import {
   commitSlashArgValue,
   exportMarkdown,

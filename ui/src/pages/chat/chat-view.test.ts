@@ -16,7 +16,7 @@ import type { ExecApprovalRequest } from "../../app/exec-approval.ts";
 import type { UiSettings } from "../../app/settings.ts";
 import { i18n, t } from "../../i18n/index.ts";
 import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts";
-import { makeSlashCommand } from "../../lib/chat/commands.ln.ts";
+import { makeSlashCommand } from "../../lib/chat/commands.test-support.ts";
 import {
   buildFallbackSlashCommands,
   replaceSlashCommands,

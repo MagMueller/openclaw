@@ -2,7 +2,7 @@
 import { html, nothing, render } from "lit";
 import { afterEach, describe, expect, it } from "vitest";
 import { defineChatCommand } from "../../../../../src/auto-reply/commands-registry.shared.js";
-import { makeSlashCommand } from "../../../lib/chat/commands.ln.ts";
+import { makeSlashCommand } from "../../../lib/chat/commands.test-support.ts";
 import {
   buildSlashCommandText,
   SLASH_COMMANDS,

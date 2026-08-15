@@ -111,10 +111,7 @@ function buildSlashArgStage(
   return null;
 }
 
-function abortSlashMenuForQueuedEdit(
-  props: ChatComposerProps,
-  requestUpdate: () => void,
-): boolean {
+function abortSlashMenuForQueuedEdit(props: ChatComposerProps, requestUpdate: () => void): boolean {
   if (!props.queuedEdit?.editingId) {
     return false;
   }
@@ -399,10 +396,7 @@ export function getSlashArgDraftChoices(state: ChatComposerState): SlashCommandA
  * empty. Returns true when the key was consumed, so the caller stops before the
  * send path turns a missing value into a bare command.
  */
-export function refuseEmptyRequiredSlashArg(
-  props: ChatComposerProps,
-  requestUpdate: () => void,
-): boolean {
+function refuseEmptyRequiredSlashArg(props: ChatComposerProps, requestUpdate: () => void): boolean {
   const state = getChatComposerState(props.paneId);
   const stage = state.slashMenuStage;
   if (!stage || stage.arg.required !== true || stage.input.trim().length > 0) {

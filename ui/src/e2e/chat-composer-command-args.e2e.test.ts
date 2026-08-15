@@ -374,9 +374,7 @@ suite.define(() => {
         await expect.poll(() => f.composer.inputValue()).toBe("/exec ");
         await f.shot("dmulti1-free-draft");
 
-        await f.composer.type(
-          "host=sandbox security=allowlist ask=on-miss node=worker-01",
-        );
+        await f.composer.type("host=sandbox security=allowlist ask=on-miss node=worker-01");
         await f.composer.press("Enter");
         await f.gateway.waitForRequest("chat.send");
         expect(await f.sentMessages()).toEqual([
