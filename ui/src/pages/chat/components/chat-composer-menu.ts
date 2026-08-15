@@ -18,6 +18,7 @@ export function handleComposerMenuKeyDown<T>(
       resetSkillMenuState(state);
     } else {
       state.slashMenuOpen = false;
+      state.slashMenuDismissedDraft = state.slashMenuDraft;
       resetSlashMenuState(state);
     }
     requestUpdate();

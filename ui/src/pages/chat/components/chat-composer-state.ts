@@ -13,6 +13,8 @@ function createChatComposerState(): ChatComposerState {
     slashMenuItems: [],
     slashMenuIndex: 0,
     slashMenuStage: null,
+    slashMenuDraft: null,
+    slashMenuDismissedDraft: null,
     slashCommandRefreshPending: false,
     skillMenuOpen: false,
     skillMenuItems: [],

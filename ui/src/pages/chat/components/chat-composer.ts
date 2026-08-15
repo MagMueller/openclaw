@@ -41,6 +41,8 @@ import {
   resetSlashMenuState,
   scrollActiveSlashMenuOptionIntoView,
   selectSlashCommand,
+  submitSlashDraft,
+  syncSlashMenuDraft,
   tabCompleteSlashCommand,
   updateSlashMenu,
 } from "./chat-composer-slash-menu.ts";
@@ -94,6 +96,10 @@ export function renderChatComposer(props: ChatComposerProps) {
   state.dictationDraftKey = draftKey;
   const visibleDraft =
     state.composingDraft?.key === draftKey ? state.composingDraft.value : props.draft;
+  // The host may replace the draft without an input event (history, dictation,
+  // queued edit, or another programmatic action). Re-derive only when its value
+  // changes; Escape keeps the current snapshot dismissed until the draft moves.
+  syncSlashMenuDraft(visibleDraft, props);
   state.composerInputRef ??= (element?: Element) => {
     state.composerInput = replaceComposerPopoverAnchor(state.composerInput, element);
   };
@@ -345,6 +351,7 @@ export function renderChatComposer(props: ChatComposerProps) {
         }
         // History navigation updates the renderer-owned draft outside a
         // reactive property; commit it before placing the caret in the DOM.
+        syncSlashMenuDraft(props.getDraft?.() ?? props.draft, props);
         requestUpdate();
         if (result.restoreCaret) {
           restoreHistoryCaret(target, result.restoreCaret);
@@ -355,11 +362,16 @@ export function renderChatComposer(props: ChatComposerProps) {
 
     const sendShortcutMatches = sendShortcut === "enter" || event.metaKey || event.ctrlKey;
     if (event.key === "Enter" && !event.shiftKey && sendShortcutMatches) {
-      if (!canSubmitDraft((event.target as HTMLTextAreaElement).value)) {
+      const target = event.target as HTMLTextAreaElement;
+      if (!canSubmitDraft(target.value)) {
+        return;
+      }
+      const slashSubmission = submitSlashDraft(target.value, props, requestUpdate);
+      if (slashSubmission !== "allow") {
+        event.preventDefault();
         return;
       }
       event.preventDefault();
-      const target = event.target as HTMLTextAreaElement;
       commitComposerDraft(props, target.value);
       props.onSend();
       syncComposerDraftAfterSend(target);
@@ -441,11 +453,15 @@ export function renderChatComposer(props: ChatComposerProps) {
       state.composingDraft = null;
     }
     commitComposerDraft(props, target.value);
+    syncSlashMenuDraft(target.value, props);
     props.onTypingChange?.(false);
   };
   const handleSend = () => {
     const draft = state.composerTextarea?.value ?? props.draft;
     if (!canSubmitDraft(draft)) {
+      return;
+    }
+    if (submitSlashDraft(draft, props, requestUpdate) !== "allow") {
       return;
     }
     state.composerComposing = false;
@@ -558,6 +574,7 @@ export function renderChatComposer(props: ChatComposerProps) {
         adjustTextareaHeight(target);
       }
       commitComposerDraft(props, insertion.value);
+      syncSlashMenuDraft(insertion.value, props);
       state.dictationSelection = null;
       requestUpdate();
       queueMicrotask(() => {

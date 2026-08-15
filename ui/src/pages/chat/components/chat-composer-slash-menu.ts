@@ -52,10 +52,14 @@ function getSlashArgScope(props: ChatComposerProps): SlashCommandArgScope | unde
   const session = props.sessions?.sessions?.find((row) => row.key === props.sessionKey);
   const model = session?.model;
   const thinkingLevels = session?.thinkingLevels?.map(({ id, label }) => ({ id, label }));
-  if (!model && !thinkingLevels?.length) {
+  const fastAutoOnSeconds = session?.fastAutoOnSeconds;
+  if (!model && !thinkingLevels?.length && fastAutoOnSeconds == null) {
     return undefined;
   }
-  const scope = thinkingLevels?.length ? { thinkingLevels } : {};
+  const scope = {
+    ...(thinkingLevels?.length ? { thinkingLevels } : {}),
+    ...(fastAutoOnSeconds != null ? { fastAutoOnSeconds } : {}),
+  };
   if (!model) {
     return scope;
   }
@@ -111,6 +115,118 @@ function buildSlashArgStage(
   return null;
 }
 
+type SlashMenuResolution = {
+  open: boolean;
+  items: SlashCommandDef[];
+  stage: SlashArgStage | null;
+};
+
+function closedSlashMenuResolution(): SlashMenuResolution {
+  return { open: false, items: [], stage: null };
+}
+
+function getSlashStageChoices(stage: SlashArgStage): SlashCommandArgChoice[] {
+  const filter = stage.input.trim().toLowerCase();
+  if (!filter) {
+    return stage.choices;
+  }
+  return stage.choices.filter(
+    (choice) =>
+      choice.value.toLowerCase().includes(filter) || choice.label.toLowerCase().includes(filter),
+  );
+}
+
+/**
+ * Finds a declared choice that was already committed by the positional parser.
+ * The parser remains authoritative for token ownership; this only checks the
+ * value against the same resolved choices the menu renders.
+ */
+function findInvalidCommittedSlashArg(
+  command: SlashCommandDef,
+  committed: string,
+  input: string,
+  values: CommandArgValues,
+  props: ChatComposerProps,
+): { arg: SlashArgStage["arg"]; values: CommandArgValues; input: string } | null {
+  const committedTokens = committed.trim() ? committed.trim().split(/\s+/u) : [];
+  const validValues: CommandArgValues = {};
+  let tokenIndex = 0;
+  for (const arg of getSlashCommandArgs(command)) {
+    const value = values[arg.name];
+    if (value == null) {
+      break;
+    }
+    const choices = resolveSlashCommandArgChoices(command, arg, getSlashArgScope(props));
+    if (choices.length > 0 && !choices.some((choice) => choice.value === String(value))) {
+      return {
+        arg,
+        values: validValues,
+        input: [...committedTokens.slice(tokenIndex), ...(input ? [input] : [])].join(" "),
+      };
+    }
+    validValues[arg.name] = value;
+    tokenIndex = arg.captureRemaining ? committedTokens.length : tokenIndex + 1;
+  }
+  return null;
+}
+
+/** Pure, authoritative draft -> menu/stage resolution. */
+function resolveSlashMenuState(value: string, props: ChatComposerProps): SlashMenuResolution {
+  if (props.queuedEdit?.editingId) {
+    return closedSlashMenuResolution();
+  }
+  const commandMatch = value.match(/^\/(\S*)$/u);
+  if (commandMatch) {
+    const items = getSlashCommandCompletions(commandMatch[1] ?? "", { showAll: true });
+    return { open: items.length > 0, items, stage: null };
+  }
+
+  const argMatch = value.match(/^\/(\S+)\s([\s\S]*)$/u);
+  const command = argMatch ? findSlashCommandByName(argMatch[1] ?? "") : undefined;
+  if (!argMatch || !command) {
+    return closedSlashMenuResolution();
+  }
+  const { committed, input } = splitCommandArgDraft(command.definition, argMatch[2] ?? "");
+  const parsed = parseCommandArgs(command.definition, committed);
+  const values = parsed?.values ?? {};
+  const invalid = findInvalidCommittedSlashArg(command, committed, input, values, props);
+  const stage = buildSlashArgStage(command, invalid?.values ?? values, props);
+  if (!stage) {
+    return closedSlashMenuResolution();
+  }
+  stage.input = invalid?.input ?? input;
+  stage.invalidChoice =
+    invalid !== null || (stage.choices.length > 0 && getSlashStageChoices(stage).length === 0);
+  return { open: true, items: [], stage };
+}
+
+function applySlashMenuResolution(
+  state: ChatComposerState,
+  draft: string,
+  resolution: SlashMenuResolution,
+): void {
+  state.slashMenuDraft = draft;
+  state.slashMenuDismissedDraft = null;
+  state.slashMenuOpen = resolution.open;
+  state.slashMenuItems = resolution.items;
+  state.slashMenuStage = resolution.stage;
+  state.slashMenuIndex = 0;
+}
+
+/** Revalidates a programmatic draft change without causing a render loop. */
+export function syncSlashMenuDraft(value: string, props: ChatComposerProps): void {
+  const state = getChatComposerState(props.paneId);
+  if (state.slashMenuDraft === value) {
+    return;
+  }
+  applySlashMenuResolution(state, value, resolveSlashMenuState(value, props));
+}
+
+function rememberSlashMenuDraft(state: ChatComposerState, draft: string): void {
+  state.slashMenuDraft = draft;
+  state.slashMenuDismissedDraft = null;
+}
+
 function abortSlashMenuForQueuedEdit(props: ChatComposerProps, requestUpdate: () => void): boolean {
   if (!props.queuedEdit?.editingId) {
     return false;
@@ -135,6 +251,7 @@ function submitSlashCommandText(commandText: string, props: ChatComposerProps): 
   // The override is authoritative for the send owner, so it intentionally does
   // not clear host state. The staged composer owns that draft and clears it here.
   commitComposerDraft(props, "");
+  rememberSlashMenuDraft(getChatComposerState(props.paneId), "");
 }
 
 function openSlashArgStage(
@@ -154,7 +271,9 @@ function openSlashArgStage(
   // the message box show exactly what will be sent, keeps a queued-message edit
   // from mistaking an open stage for an empty composer, and lets a typed command
   // and a menu-picked one share one state machine.
-  commitComposerDraft(props, `${getSlashStagePrefix(stage)} `);
+  const draft = `${getSlashStagePrefix(stage)} `;
+  rememberSlashMenuDraft(state, draft);
+  commitComposerDraft(props, draft);
   requestUpdate();
 }
 
@@ -177,10 +296,40 @@ function runStagedSlashCommand(
   state.slashMenuOpen = false;
   resetSlashMenuState(state);
   const commandText = buildSlashCommandText(command, values);
+  rememberSlashMenuDraft(state, commandText);
   commitComposerDraft(props, commandText);
   submitSlashCommandText(commandText, props);
   queueMicrotask(() => state.composerTextarea?.focus({ preventScroll: true }));
   requestUpdate();
+}
+
+type SlashDraftSubmission = "allow" | "blocked" | "submitted";
+
+function refuseSlashStage(
+  stage: SlashArgStage,
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+  reason: "required" | "choice",
+): SlashDraftSubmission {
+  const state = getChatComposerState(props.paneId);
+  stage.needsValue = reason === "required";
+  stage.invalidChoice = reason === "choice";
+  state.slashMenuStage = stage;
+  state.slashMenuItems = [];
+  state.slashMenuIndex = 0;
+  state.slashMenuOpen = true;
+  requestUpdate();
+  return "blocked";
+}
+
+function validateSlashArgValue(stage: SlashArgStage, value: string): "valid" | "required" | "choice" {
+  if (!value.trim()) {
+    return stage.arg.required === true ? "required" : "valid";
+  }
+  if (stage.choices.length > 0 && !stage.choices.some((choice) => choice.value === value)) {
+    return "choice";
+  }
+  return "valid";
 }
 
 /**
@@ -202,6 +351,13 @@ export function commitSlashArgValue(
   if (!stage) {
     return;
   }
+  const validation = validateSlashArgValue(stage, value);
+  if (validation !== "valid") {
+    refuseSlashStage(stage, props, requestUpdate, validation);
+    return;
+  }
+  stage.needsValue = false;
+  stage.invalidChoice = false;
   const values = value ? { ...stage.values, [stage.arg.name]: value } : stage.values;
   const next = value ? buildSlashArgStage(stage.command, values, props) : null;
   if (next) {
@@ -227,6 +383,24 @@ function beginSlashCommand(
     openSlashArgStage(stage, props, requestUpdate);
     return;
   }
+  const hasDeclaredArgumentPlan =
+    getSlashCommandArgs(cmd).length > 0 || ownsRawArgumentTail(cmd);
+  if (!hasDeclaredArgumentPlan) {
+    const commandText = `/${cmd.name}`;
+    if (submit) {
+      rememberSlashMenuDraft(state, commandText);
+      commitComposerDraft(props, commandText);
+      submitSlashCommandText(commandText, props);
+    } else {
+      const draft = `${commandText} `;
+      rememberSlashMenuDraft(state, draft);
+      commitComposerDraft(props, draft);
+    }
+    state.slashMenuOpen = false;
+    resetSlashMenuState(state);
+    requestUpdate();
+    return;
+  }
   // A command that takes no arguments must run bare instead of leaving a draft
   // the operator has to send by hand; one that owns its raw tail gets the draft
   // prepared so the tail can be typed in the message box.
@@ -234,6 +408,7 @@ function beginSlashCommand(
     state.slashMenuOpen = false;
     resetSlashMenuState(state);
     const commandText = `/${cmd.name}`;
+    rememberSlashMenuDraft(state, commandText);
     commitComposerDraft(props, commandText);
     if (submit) {
       submitSlashCommandText(commandText, props);
@@ -241,10 +416,75 @@ function beginSlashCommand(
     requestUpdate();
     return;
   }
-  commitComposerDraft(props, `/${cmd.name} `);
+  const draft = `/${cmd.name} `;
+  rememberSlashMenuDraft(state, draft);
+  commitComposerDraft(props, draft);
   state.slashMenuOpen = false;
   resetSlashMenuState(state);
   requestUpdate();
+}
+
+/**
+ * Shared submission gate for keyboard, button, and any caller that submits the
+ * visible draft. It re-resolves the draft first, so Escape, history, or a
+ * programmatic edit cannot bypass required/choice validation.
+ */
+export function submitSlashDraft(
+  draft: string,
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+): SlashDraftSubmission {
+  const state = getChatComposerState(props.paneId);
+  const resolution = resolveSlashMenuState(draft, props);
+  applySlashMenuResolution(state, draft, resolution);
+  let stage = resolution.stage;
+
+  if (!stage) {
+    const bareMatch = draft.match(/^\/(\S+)$/u);
+    const command = bareMatch ? findSlashCommandByName(bareMatch[1] ?? "") : undefined;
+    if (command && acceptsSlashCommandArgs(command) && !ownsRawArgumentTail(command)) {
+      stage = buildSlashArgStage(command, {}, props);
+    }
+  }
+  if (!stage) {
+    return "allow";
+  }
+
+  const input = stage.input.trim();
+  if (!input) {
+    const validation = validateSlashArgValue(stage, "");
+    if (validation !== "valid") {
+      return refuseSlashStage(stage, props, requestUpdate, validation);
+    }
+    runStagedSlashCommand(stage.command, stage.values, props, requestUpdate);
+    return "submitted";
+  }
+
+  if (stage.choices.length > 0) {
+    const choice = stage.choices.find((entry) => entry.value === input);
+    if (!choice) {
+      return refuseSlashStage(stage, props, requestUpdate, "choice");
+    }
+    const validation = validateSlashArgValue(stage, choice.value);
+    if (validation !== "valid") {
+      return refuseSlashStage(stage, props, requestUpdate, validation);
+    }
+    const values = { ...stage.values, [stage.arg.name]: choice.value };
+    const next = buildSlashArgStage(stage.command, values, props);
+    if (next) {
+      if (next.arg.required === true) {
+        next.needsValue = true;
+        openSlashArgStage(next, props, requestUpdate);
+        return "blocked";
+      }
+      runStagedSlashCommand(stage.command, values, props, requestUpdate);
+      return "submitted";
+    }
+    runStagedSlashCommand(stage.command, values, props, requestUpdate);
+    return "submitted";
+  }
+
+  return "allow";
 }
 
 export function selectSlashCommand(
@@ -281,7 +521,11 @@ function requestSlashCommandRefresh(
   void Promise.resolve(refresh).finally(() => {
     state.slashCommandRefreshPending = false;
     const nextValue = getCurrentValue?.() ?? props.getDraft?.() ?? value;
+    if (state.slashMenuDismissedDraft === nextValue) {
+      return;
+    }
     if (!nextValue.startsWith("/")) {
+      rememberSlashMenuDraft(state, nextValue);
       closeSlashMenuIfNeeded(state, requestUpdate);
       return;
     }
@@ -302,47 +546,10 @@ export function updateSlashMenu(
   getCurrentValue?: () => string,
 ): void {
   const state = getChatComposerState(props.paneId);
-  if (props.queuedEdit?.editingId) {
-    closeSlashMenuIfNeeded(state, requestUpdate);
-    return;
+  applySlashMenuResolution(state, value, resolveSlashMenuState(value, props));
+  if (value.match(/^\/(\S*)$/u) && !opts.skipSlashIntent) {
+    requestSlashCommandRefresh(value, props, requestUpdate, getCurrentValue);
   }
-  const commandMatch = value.match(/^\/(\S*)$/u);
-  if (commandMatch) {
-    if (!opts.skipSlashIntent) {
-      requestSlashCommandRefresh(value, props, requestUpdate, getCurrentValue);
-    }
-    const items = getSlashCommandCompletions(commandMatch[1] ?? "", { showAll: true });
-    state.slashMenuItems = items;
-    state.slashMenuOpen = items.length > 0;
-    state.slashMenuIndex = 0;
-    state.slashMenuStage = null;
-    requestUpdate();
-    return;
-  }
-
-  const argMatch = value.match(/^\/(\S+)\s([\s\S]*)$/u);
-  const command = argMatch ? findSlashCommandByName(argMatch[1] ?? "") : undefined;
-  if (!argMatch || !command) {
-    closeSlashMenuIfNeeded(state, requestUpdate);
-    return;
-  }
-  // The segment still being typed filters the current argument's options rather
-  // than committing a value, so it is held back from the parsed set. The split
-  // follows the executor's own rule: an argument declared captureRemaining owns
-  // the whole tail, so `/name Release prep` keeps typing one title instead of
-  // committing "Release" and filtering on "prep".
-  const { committed, input } = splitCommandArgDraft(command.definition, argMatch[2] ?? "");
-  const parsed = parseCommandArgs(command.definition, committed);
-  const stage = buildSlashArgStage(command, parsed?.values ?? {}, props);
-  if (!stage) {
-    closeSlashMenuIfNeeded(state, requestUpdate);
-    return;
-  }
-  stage.input = input;
-  state.slashMenuStage = stage;
-  state.slashMenuItems = [];
-  state.slashMenuIndex = 0;
-  state.slashMenuOpen = true;
   requestUpdate();
 }
 
@@ -367,18 +574,6 @@ function getSlashArgOptionId(paneId: string, commandName: string, arg: string): 
   return paneDomId(
     paneId,
     `slash-option-arg-${slashOptionIdSegment(commandName)}-${slashOptionIdSegment(arg)}`,
-  );
-}
-
-/** Choices left after the stage's filter; empty on a free-value stage. */
-function getSlashStageChoices(stage: SlashArgStage): SlashCommandArgChoice[] {
-  const filter = stage.input.trim().toLowerCase();
-  if (!filter) {
-    return stage.choices;
-  }
-  return stage.choices.filter(
-    (choice) =>
-      choice.value.toLowerCase().includes(filter) || choice.label.toLowerCase().includes(filter),
   );
 }
 

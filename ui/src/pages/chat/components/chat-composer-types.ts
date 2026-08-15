@@ -191,6 +191,10 @@ export type ChatComposerState = {
   slashMenuItems: SlashCommandDef[];
   slashMenuIndex: number;
   slashMenuStage: SlashArgStage | null;
+  /** Draft last used by the pure slash resolver; Escape keeps this snapshot. */
+  slashMenuDraft: string | null;
+  /** Prevents an asynchronous catalog refresh from undoing Escape. */
+  slashMenuDismissedDraft: string | null;
   slashCommandRefreshPending: boolean;
   skillMenuOpen: boolean;
   skillMenuItems: SlashCommandDef[];

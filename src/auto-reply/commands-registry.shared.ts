@@ -608,13 +608,14 @@ export function buildBuiltinChatCommands(
     defineBuiltinCommand("fast", "Toggle fast mode.", "options", "standard", {
       args: [
         defineCommandArgument("mode", "on, off, auto, default, or status", {
-          choices: ({ cfg, provider, model }) => [
+          choices: ({ cfg, provider, model, fastAutoOnSeconds }) => [
             "on",
             "off",
             {
               value: "auto",
               label: formatFastModeAutoLabel({
-                fastAutoOnSeconds: resolveFastModeModelAutoOnSeconds({ cfg, provider, model }),
+                fastAutoOnSeconds:
+                  fastAutoOnSeconds ?? resolveFastModeModelAutoOnSeconds({ cfg, provider, model }),
               }),
             },
             "default",
