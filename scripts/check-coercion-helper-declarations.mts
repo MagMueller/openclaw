@@ -233,6 +233,12 @@ const EXCEPTIONAL_COERCION_HELPER_CARVE_OUTS = [
     reason: "Plain-Node shared helper serves MJS and E2E callers without package resolution.",
   },
   {
+    file: "scripts/check-protocol-event-coverage.mts",
+    name: "isRecord",
+    kind: "function",
+    reason: "Dependency-free preflight cannot resolve workspace package imports.",
+  },
+  {
     file: "scripts/pr-lib/process-group-runner.mjs",
     name: "toError",
     kind: "function",
