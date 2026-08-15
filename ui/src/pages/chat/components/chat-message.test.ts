@@ -704,6 +704,10 @@ describe("grouped chat rendering", () => {
 
     expect(container.querySelector(".chat-activity-group__label")?.textContent).toBe("Thinking");
     expect(container.querySelector(".chat-activity-group__summary")).toBeInstanceOf(HTMLDivElement);
+    expect(
+      container.querySelector(".chat-activity-group__icon .chat-reading-indicator"),
+    ).not.toBeNull();
+    expect(container.querySelector(".chat-activity-group__icon .claw-icon__jaw")).not.toBeNull();
     expect(container.querySelector(".collapse-chevron")).toBeNull();
   });
 
@@ -2163,6 +2167,7 @@ describe("grouped chat rendering", () => {
     expect(activity.querySelector(".chat-activity-group__preview")).toBeNull();
     expect(activity.textContent).not.toContain("read_file");
     expect(activity.textContent).not.toContain("run_command");
+    expect(activity.querySelector(".chat-reading-indicator")).toBeNull();
     expect(container.querySelector(".chat-tool-msg-body")).toBeNull();
   });
 
@@ -2439,6 +2444,9 @@ describe("grouped chat rendering", () => {
     expect(container.querySelector(".chat-activity-group__label")?.textContent).toBe(
       "Editing files",
     );
+    expect(
+      container.querySelector(".chat-activity-group__icon .chat-reading-indicator"),
+    ).toBeNull();
   });
 
   it("keeps failed activity collapsed with neutral chain chrome", () => {

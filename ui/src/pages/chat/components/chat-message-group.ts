@@ -44,7 +44,7 @@ import {
 } from "./chat-message-timestamp.ts";
 import type { SidebarContent, SidebarFullMessageLoader } from "./chat-sidebar.ts";
 import { isRunningToolCard, shouldToggleSelectableDisclosure } from "./chat-tool-cards.ts";
-import { renderTurnRecapRow } from "./chat-working-indicator.ts";
+import { renderChatWorkingClaw, renderTurnRecapRow } from "./chat-working-indicator.ts";
 
 type ActiveContinuation = {
   parts: StreamGroupPart[];
@@ -258,7 +258,9 @@ export function renderActivityGroup(
   const rowKey = firstGroup?.key ?? activity.key;
   const role = firstGroup?.role ?? "assistant";
   const summaryContent = html`
-    <span class="chat-activity-group__icon">${icons.activity}</span>
+    <span class="chat-activity-group__icon"
+      >${activity.state === "thinking" ? renderChatWorkingClaw(activity.key) : icons.activity}</span
+    >
     <span class="chat-activity-group__label" title=${groupSummaryLabel}>${groupSummaryLabel}</span>
     ${hasError
       ? html`<span class="chat-tool-row__badge">${t("chat.toolCards.failed")}</span>`

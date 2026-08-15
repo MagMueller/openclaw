@@ -115,6 +115,11 @@ suite.define(() => {
     }
 
     await page.getByText(prompt, { exact: true }).waitFor();
+    if (proofState !== "before") {
+      const thinkingGroup = page.locator(".chat-activity-group").last();
+      await expect.poll(() => thinkingGroup.locator(".chat-reading-indicator").count()).toBe(1);
+      await expect.poll(() => thinkingGroup.locator(".claw-icon__jaw").count()).toBe(1);
+    }
     await capture(page, "thinking", "light");
     await capture(page, "thinking", "dark");
 

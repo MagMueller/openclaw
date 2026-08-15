@@ -116,6 +116,22 @@ function renderLiveOutputTokens(outputTokens: number | null | undefined) {
   `;
 }
 
+export function renderChatWorkingClaw(
+  key: string,
+  options: { className?: string; eligible?: boolean } = {},
+) {
+  return html`
+    <span
+      class="chat-reading-indicator ${options.className ?? ""} ${selectWorkingClawSurprise(key, {
+        eligible: options.eligible,
+      })}"
+      aria-hidden="true"
+    >
+      ${icons.claw}
+    </span>
+  `;
+}
+
 export function renderChatWorkingIndicator(
   part: Extract<ChatItem, { kind: "reading-indicator" }>,
   options: {
@@ -140,16 +156,10 @@ export function renderChatWorkingIndicator(
     >
       ${continuation
         ? nothing
-        : html`
-            <div
-              class="chat-bubble chat-reading-indicator ${selectWorkingClawSurprise(part.key, {
-                eligible: !waitingApproval,
-              })}"
-              aria-hidden="true"
-            >
-              ${icons.claw}
-            </div>
-          `}
+        : renderChatWorkingClaw(part.key, {
+            className: "chat-bubble",
+            eligible: !waitingApproval,
+          })}
       <span class="chat-working-indicator__status">
         ${waitingApproval
           ? html`<span>${t("chat.waitingForApproval")}</span>`
