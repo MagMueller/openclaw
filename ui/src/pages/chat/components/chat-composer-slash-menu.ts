@@ -392,7 +392,10 @@ function beginSlashCommand(
     return;
   }
   const hasDeclaredArgumentPlan = getSlashCommandArgs(cmd).length > 0;
-  if (!hasDeclaredArgumentPlan) {
+  // /btw has a raw question but no positional plan; its bare form must reach
+  // the executor so the missing-question usage response is visible.
+  const shouldSubmitBare = !acceptsSlashCommandArgs(cmd) || cmd.name === "btw";
+  if (!hasDeclaredArgumentPlan && shouldSubmitBare) {
     const commandText = `/${cmd.name}`;
     if (submit) {
       rememberSlashMenuDraft(state, commandText);
