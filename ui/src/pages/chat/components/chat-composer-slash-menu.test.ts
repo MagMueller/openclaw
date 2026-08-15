@@ -43,6 +43,7 @@ function createHarness(): Harness {
   let draft = "";
   const props = {
     paneId: PANE_ID,
+    sessionKey: PANE_ID,
     // A getter keeps `props.draft` in step with the committed value, matching the
     // reactive host property the composer reads between renders.
     get draft() {
