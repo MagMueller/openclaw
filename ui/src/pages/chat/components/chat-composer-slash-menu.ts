@@ -23,7 +23,6 @@ import {
   refuseSlashStage,
   rememberSlashMenuDraft,
   resolveSlashMenuState,
-  syncSlashMenuDraft,
   validateSlashArgValue,
 } from "./chat-composer-slash-menu-resolution.ts";
 import type { ChatComposerProps, ChatComposerState, SlashArgStage } from "./chat-composer-types.ts";
