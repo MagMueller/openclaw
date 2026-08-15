@@ -219,6 +219,14 @@ export function syncSlashMenuDraft(value: string, props: ChatComposerProps): voi
   if (state.slashMenuDraft === value) {
     return;
   }
+  // Bare command fragments are opened by the input producer, not by a render
+  // caused by an unrelated host update. This keeps reset/history/selection
+  // rerenders from resurrecting autocomplete while argument tails still get
+  // their authoritative stage resolution here.
+  if (!/^\/\S+\s[\s\S]*$/u.test(value)) {
+    applySlashMenuResolution(state, value, closedSlashMenuResolution());
+    return;
+  }
   applySlashMenuResolution(state, value, resolveSlashMenuState(value, props));
 }
 
@@ -383,8 +391,7 @@ function beginSlashCommand(
     openSlashArgStage(stage, props, requestUpdate);
     return;
   }
-  const hasDeclaredArgumentPlan =
-    getSlashCommandArgs(cmd).length > 0 || ownsRawArgumentTail(cmd);
+  const hasDeclaredArgumentPlan = getSlashCommandArgs(cmd).length > 0;
   if (!hasDeclaredArgumentPlan) {
     const commandText = `/${cmd.name}`;
     if (submit) {
