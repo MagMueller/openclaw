@@ -181,6 +181,24 @@ describe("slash command argument staging", () => {
     ]);
   });
 
+  it("uses the active session fast auto threshold in the staged label", () => {
+    const harness = createHarness();
+    harness.props.sessions = {
+      sessions: [
+        {
+          key: PANE_ID,
+          model: "provider/session-model",
+          fastAutoOnSeconds: 30,
+        },
+      ],
+    } as never;
+    openCommand(harness, requireCommand("fast"));
+
+    expect(harness.stage()?.choices.find((choice) => choice.value === "auto")?.label).toBe(
+      "auto (30 sec)",
+    );
+  });
+
   it("selects the highlighted value when a required choice is empty", () => {
     const harness = createHarness();
     const command = makeSlashCommand("required-choice", {
@@ -341,6 +359,39 @@ describe("slash command argument staging", () => {
     harness.type("/session idle ");
     expect(harness.stage()?.arg.name).toBe("value");
     expect(harness.prefix()).toBe("/session idle");
+  });
+
+  it.each([
+    {
+      name: "paste invalid enum",
+      drafts: ["/session bogus 24h"],
+      arg: "action",
+      input: "bogus 24h",
+      invalidChoice: true,
+    },
+    {
+      name: "edit a committed argument",
+      drafts: ["/session idle ", "/session max-age "],
+      arg: "value",
+      input: "",
+      invalidChoice: false,
+    },
+    {
+      name: "backspace from stage two to stage one",
+      drafts: ["/session idle ", "/session "],
+      arg: "action",
+      input: "",
+      invalidChoice: false,
+    },
+  ])("re-derives the stage after $name", ({ drafts, arg, input, invalidChoice }) => {
+    const harness = createHarness();
+    for (const draft of drafts) {
+      harness.type(draft);
+    }
+
+    expect(harness.stage()?.arg.name).toBe(arg);
+    expect(harness.stage()?.input).toBe(input);
+    expect(harness.stage()?.invalidChoice).toBe(invalidChoice);
   });
 
   it("filters choices from the typed tail and keeps the highlight in range", () => {

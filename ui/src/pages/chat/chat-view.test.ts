@@ -4022,6 +4022,84 @@ describe("chat slash menu accessibility", () => {
     expect(draft).toBe("/tools ");
   });
 
+  it("re-derives an open slash stage after history recall before Enter sends", () => {
+    const container = document.createElement("div");
+    let draft = "";
+    const onSend = vi.fn((messageOverride?: string) => messageOverride ?? draft);
+    const onDraftChange = vi.fn((next: string) => {
+      draft = next;
+    });
+    const onHistoryKeydown = vi.fn(() => {
+      draft = "/name recalled from history";
+      return {
+        handled: true,
+        preventDefault: true,
+        restoreCaret: "up" as const,
+        decision: "handled:history-up" as const,
+        historyNavigationActiveBefore: false,
+        historyNavigationActiveAfter: true,
+        selectionStart: 0,
+        selectionEnd: 0,
+        valueLength: 0,
+      };
+    });
+    const renderCurrent = () => {
+      renderChatInto(container, {
+        draft,
+        getDraft: () => draft,
+        onDraftChange,
+        onHistoryKeydown,
+        onRequestUpdate: renderCurrent,
+        onSend,
+      });
+    };
+    renderCurrent();
+
+    inputDraft(container, "/name ");
+    keydownComposer(container, "ArrowUp");
+    expect(getComposerTextarea(container).value).toBe("/name recalled from history");
+
+    keydownComposer(container, "Enter");
+
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(onSend).toHaveBeenCalledWith(undefined);
+    expect(draft).toBe("/name recalled from history");
+  });
+
+  it("refuses a required slash argument through the Send button", () => {
+    const onSend = vi.fn();
+    const { container } = createReactiveDraftHarness({ onSend });
+
+    inputDraft(container, "/redirect ");
+    container.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.click();
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(container.querySelector(".slash-menu-group__hint--needed")).not.toBeNull();
+  });
+
+  it("refuses a required slash argument after Escape closes its stage", () => {
+    const onSend = vi.fn();
+    const { container } = createReactiveDraftHarness({ onSend });
+
+    inputDraft(container, "/redirect ");
+    keydownComposer(container, "Escape");
+    keydownComposer(container, "Enter");
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(container.querySelector(".slash-menu-group__hint--needed")).not.toBeNull();
+  });
+
+  it("refuses an invalid committed enum instead of sending the visible draft", () => {
+    const onSend = vi.fn();
+    const { container } = createReactiveDraftHarness({ onSend });
+
+    inputDraft(container, "/session bogus 24h");
+    keydownComposer(container, "Enter");
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(container.querySelector(".slash-menu-group__hint--needed")).not.toBeNull();
+  });
+
   it("clears the visible local draft immediately when send clears the host draft", () => {
     const { container, onDraftChange, onSend } = createDraftHarness();
     inputDraft(container, "submitted message");
