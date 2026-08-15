@@ -1,8 +1,4 @@
 import { html, nothing, type TemplateResult } from "lit";
-import {
-  parseCommandArgs,
-  splitCommandArgDraft,
-} from "../../../../../src/auto-reply/commands-invocation.js";
 import type { CommandArgValues } from "../../../../../src/auto-reply/commands-registry.types.js";
 import { icons, type IconName } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
@@ -11,29 +7,34 @@ import {
   buildSlashCommandText,
   getSlashCommandArgs,
   getSlashCommandCategoryLabel,
-  getSlashCommandCompletions,
   getSlashCommandDescription,
   ownsRawArgumentTail,
-  resolveSlashCommandArgChoices,
-  SLASH_COMMANDS,
   type SlashCommandArgChoice,
-  type SlashCommandArgScope,
   type SlashCommandCategory,
   type SlashCommandDef,
 } from "../../../lib/chat/commands.ts";
 import { exportChatMarkdown } from "../export.ts";
 import { commitComposerDraft, getChatComposerState } from "./chat-composer-state.ts";
+import {
+  applySlashMenuResolution,
+  buildSlashArgStage,
+  findSlashCommandByName,
+  getSlashStageChoices,
+  refuseSlashStage,
+  rememberSlashMenuDraft,
+  resolveSlashMenuState,
+  syncSlashMenuDraft,
+  validateSlashArgValue,
+} from "./chat-composer-slash-menu-resolution.ts";
 import type { ChatComposerProps, ChatComposerState, SlashArgStage } from "./chat-composer-types.ts";
 
 export function resetSlashMenuState(state: ChatComposerState): void {
   state.slashMenuStage = null;
   state.slashMenuItems = [];
 }
-
 function hasVisibleSlashMenuState(state: ChatComposerState): boolean {
   return state.slashMenuOpen || state.slashMenuStage !== null || state.slashMenuItems.length > 0;
 }
-
 function closeSlashMenuIfNeeded(state: ChatComposerState, requestUpdate: () => void): void {
   if (!hasVisibleSlashMenuState(state)) {
     return;
@@ -42,199 +43,6 @@ function closeSlashMenuIfNeeded(state: ChatComposerState, requestUpdate: () => v
   resetSlashMenuState(state);
   requestUpdate();
 }
-
-/**
- * Active model context for provider-dependent choices such as /think levels.
- * Without it those providers fall back to their own defaults, which can offer
- * levels the active model does not support.
- */
-function getSlashArgScope(props: ChatComposerProps): SlashCommandArgScope | undefined {
-  const session = props.sessions?.sessions?.find((row) => row.key === props.sessionKey);
-  const model = session?.model;
-  const thinkingLevels = session?.thinkingLevels?.map(({ id, label }) => ({ id, label }));
-  const fastAutoOnSeconds = session?.fastAutoOnSeconds;
-  if (!model && !thinkingLevels?.length && fastAutoOnSeconds == null) {
-    return undefined;
-  }
-  const scope = {
-    ...(thinkingLevels?.length ? { thinkingLevels } : {}),
-    ...(fastAutoOnSeconds != null ? { fastAutoOnSeconds } : {}),
-  };
-  if (!model) {
-    return scope;
-  }
-  const separator = model.indexOf("/");
-  if (separator === -1) {
-    return { ...scope, model };
-  }
-  return {
-    ...scope,
-    provider: model.slice(0, separator),
-    model: model.slice(separator + 1),
-  };
-}
-
-function findSlashCommandByName(name: string): SlashCommandDef | undefined {
-  const normalized = name.toLowerCase();
-  return SLASH_COMMANDS.find(
-    (command) =>
-      command.name === normalized ||
-      command.aliases?.some((alias) => alias.replace(/^\//u, "").toLowerCase() === normalized),
-  );
-}
-
-/**
- * Builds the stage for the next argument still missing a value, or null when the
- * command needs nothing more. Commands that parse their own raw tail never get a
- * stage: their declared arguments describe the native registration surface, and
- * a stepped menu would assemble text the command does not accept.
- */
-function buildSlashArgStage(
-  command: SlashCommandDef,
-  values: CommandArgValues,
-  props: ChatComposerProps,
-): SlashArgStage | null {
-  if (!acceptsSlashCommandArgs(command) || ownsRawArgumentTail(command)) {
-    return null;
-  }
-  const scope = getSlashArgScope(props);
-  for (const arg of getSlashCommandArgs(command)) {
-    if (values[arg.name] != null) {
-      continue;
-    }
-    return {
-      command,
-      values,
-      arg,
-      choices: resolveSlashCommandArgChoices(command, arg, scope),
-      input: "",
-      needsValue: false,
-      invalidChoice: false,
-    };
-  }
-  return null;
-}
-
-type SlashMenuResolution = {
-  open: boolean;
-  items: SlashCommandDef[];
-  stage: SlashArgStage | null;
-};
-
-function closedSlashMenuResolution(): SlashMenuResolution {
-  return { open: false, items: [], stage: null };
-}
-
-function getSlashStageChoices(stage: SlashArgStage): SlashCommandArgChoice[] {
-  const filter = stage.input.trim().toLowerCase();
-  if (!filter) {
-    return stage.choices;
-  }
-  return stage.choices.filter(
-    (choice) =>
-      choice.value.toLowerCase().includes(filter) || choice.label.toLowerCase().includes(filter),
-  );
-}
-
-/**
- * Finds a declared choice that was already committed by the positional parser.
- * The parser remains authoritative for token ownership; this only checks the
- * value against the same resolved choices the menu renders.
- */
-function findInvalidCommittedSlashArg(
-  command: SlashCommandDef,
-  committed: string,
-  input: string,
-  values: CommandArgValues,
-  props: ChatComposerProps,
-): { arg: SlashArgStage["arg"]; values: CommandArgValues; input: string } | null {
-  const committedTokens = committed.trim() ? committed.trim().split(/\s+/u) : [];
-  const validValues: CommandArgValues = {};
-  let tokenIndex = 0;
-  for (const arg of getSlashCommandArgs(command)) {
-    const value = values[arg.name];
-    if (value == null) {
-      break;
-    }
-    const choices = resolveSlashCommandArgChoices(command, arg, getSlashArgScope(props));
-    if (choices.length > 0 && !choices.some((choice) => choice.value === String(value))) {
-      return {
-        arg,
-        values: validValues,
-        input: [...committedTokens.slice(tokenIndex), ...(input ? [input] : [])].join(" "),
-      };
-    }
-    validValues[arg.name] = value;
-    tokenIndex = arg.captureRemaining ? committedTokens.length : tokenIndex + 1;
-  }
-  return null;
-}
-
-/** Pure, authoritative draft -> menu/stage resolution. */
-function resolveSlashMenuState(value: string, props: ChatComposerProps): SlashMenuResolution {
-  if (props.queuedEdit?.editingId) {
-    return closedSlashMenuResolution();
-  }
-  const commandMatch = value.match(/^\/(\S*)$/u);
-  if (commandMatch) {
-    const items = getSlashCommandCompletions(commandMatch[1] ?? "", { showAll: true });
-    return { open: items.length > 0, items, stage: null };
-  }
-
-  const argMatch = value.match(/^\/(\S+)\s([\s\S]*)$/u);
-  const command = argMatch ? findSlashCommandByName(argMatch[1] ?? "") : undefined;
-  if (!argMatch || !command) {
-    return closedSlashMenuResolution();
-  }
-  const { committed, input } = splitCommandArgDraft(command.definition, argMatch[2] ?? "");
-  const parsed = parseCommandArgs(command.definition, committed);
-  const values = parsed?.values ?? {};
-  const invalid = findInvalidCommittedSlashArg(command, committed, input, values, props);
-  const stage = buildSlashArgStage(command, invalid?.values ?? values, props);
-  if (!stage) {
-    return closedSlashMenuResolution();
-  }
-  stage.input = invalid?.input ?? input;
-  stage.invalidChoice =
-    invalid !== null || (stage.choices.length > 0 && getSlashStageChoices(stage).length === 0);
-  return { open: true, items: [], stage };
-}
-
-function applySlashMenuResolution(
-  state: ChatComposerState,
-  draft: string,
-  resolution: SlashMenuResolution,
-): void {
-  state.slashMenuDraft = draft;
-  state.slashMenuDismissedDraft = null;
-  state.slashMenuOpen = resolution.open;
-  state.slashMenuItems = resolution.items;
-  state.slashMenuStage = resolution.stage;
-  state.slashMenuIndex = 0;
-}
-
-/** Revalidates a programmatic draft change without causing a render loop. */
-export function syncSlashMenuDraft(value: string, props: ChatComposerProps): void {
-  const state = getChatComposerState(props.paneId);
-  if (state.slashMenuDraft === value) {
-    return;
-  }
-  // Bare command fragments are opened by the input producer, not by a render
-  // caused by an unrelated host update. This keeps reset/history/selection
-  // rerenders from resurrecting autocomplete while argument tails still get
-  // their authoritative stage resolution here.
-  if (!/^\/\S+\s[\s\S]*$/u.test(value)) {
-    applySlashMenuResolution(state, value, closedSlashMenuResolution());
-    return;
-  }
-  applySlashMenuResolution(state, value, resolveSlashMenuState(value, props));
-}
-
-function rememberSlashMenuDraft(state: ChatComposerState, draft: string): void {
-  state.slashMenuDraft = draft;
-  state.slashMenuDismissedDraft = null;
-}
-
 function abortSlashMenuForQueuedEdit(props: ChatComposerProps, requestUpdate: () => void): boolean {
   if (!props.queuedEdit?.editingId) {
     return false;
@@ -248,7 +56,6 @@ function abortSlashMenuForQueuedEdit(props: ChatComposerProps, requestUpdate: ()
   requestUpdate();
   return true;
 }
-
 /** Command text assembled so far, shown as the staged input's prefix. */
 function getSlashStagePrefix(stage: SlashArgStage): string {
   return buildSlashCommandText(stage.command, stage.values);
@@ -312,33 +119,6 @@ function runStagedSlashCommand(
 }
 
 type SlashDraftSubmission = "allow" | "blocked" | "submitted";
-
-function refuseSlashStage(
-  stage: SlashArgStage,
-  props: ChatComposerProps,
-  requestUpdate: () => void,
-  reason: "required" | "choice",
-): SlashDraftSubmission {
-  const state = getChatComposerState(props.paneId);
-  stage.needsValue = reason === "required";
-  stage.invalidChoice = reason === "choice";
-  state.slashMenuStage = stage;
-  state.slashMenuItems = [];
-  state.slashMenuIndex = 0;
-  state.slashMenuOpen = true;
-  requestUpdate();
-  return "blocked";
-}
-
-function validateSlashArgValue(stage: SlashArgStage, value: string): "valid" | "required" | "choice" {
-  if (!value.trim()) {
-    return stage.arg.required === true ? "required" : "valid";
-  }
-  if (stage.choices.length > 0 && !stage.choices.some((choice) => choice.value === value)) {
-    return "choice";
-  }
-  return "valid";
-}
 
 /**
  * Commits the current stage and advances to the next declared argument, running
