@@ -42,10 +42,10 @@ import {
   scrollActiveSlashMenuOptionIntoView,
   selectSlashCommand,
   submitSlashDraft,
-  syncSlashMenuDraft,
   tabCompleteSlashCommand,
   updateSlashMenu,
 } from "./chat-composer-slash-menu.ts";
+import { syncSlashMenuDraft } from "./chat-composer-slash-menu-resolution.ts";
 import {
   clearPendingClearedSubmittedDraft,
   commitComposerDraft,
