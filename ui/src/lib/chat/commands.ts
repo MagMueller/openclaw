@@ -169,7 +169,10 @@ const UI_ONLY_COMMANDS: SlashCommandDef[] = [
     name: "clear",
     description: "Clear chat history",
     descriptionKey: "chat.commands.clearDescription",
-    definition: defineChatCommand({ key: "clear", description: "Clear chat history" }),
+    definition: defineChatCommand({
+      key: "clear",
+      description: t("chat.commands.clearDescription"),
+    }),
     icon: "trash",
     category: "session",
     executeLocal: true,
@@ -183,11 +186,11 @@ const UI_ONLY_COMMANDS: SlashCommandDef[] = [
     args: "<message>",
     definition: defineChatCommand({
       key: "redirect",
-      description: "Abort and restart with a new message",
+      description: t("chat.commands.redirectDescription"),
       args: [
         {
           name: "message",
-          description: "Replacement message",
+          description: t("chat.commands.redirectArgDescription"),
           type: "string",
           required: true,
           captureRemaining: true,

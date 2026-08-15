@@ -4999,6 +4999,7 @@ export const en: TranslationMap = {
       argInvalidChoice: "Choose one of the listed values.",
       clearDescription: "Clear chat history",
       redirectDescription: "Abort and restart with a new message",
+      redirectArgDescription: "Replacement message",
       steerDescription: "Inject a message into the active run",
       categories: {
         session: "Session",
