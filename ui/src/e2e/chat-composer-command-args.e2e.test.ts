@@ -333,8 +333,9 @@ suite.define(() => {
         await expect.poll(() => f.optionLabels()).toEqual(["idle", "max-age"]);
         await f.shot("d1-action-choices");
 
-        // The regression this PR fixes: choosing the action used to dispatch
-        // /session idle immediately, with the duration never requested.
+        // An explicit action selection advances to the next argument without
+        // dispatching /session idle before its duration is collected.
+        await f.composer.fill("/session idle");
         await f.composer.press("Enter");
         expect(await f.sentMessages()).toEqual([]);
         await expect.poll(() => f.stagePrefix.textContent()).toBe("/session idle");

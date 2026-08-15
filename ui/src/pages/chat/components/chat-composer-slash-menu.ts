@@ -172,8 +172,9 @@ function runStagedSlashCommand(
   const state = getChatComposerState(props.paneId);
   state.slashMenuOpen = false;
   resetSlashMenuState(state);
-  commitComposerDraft(props, buildSlashCommandText(command, values));
-  props.onSend();
+  const commandText = buildSlashCommandText(command, values);
+  commitComposerDraft(props, commandText);
+  props.onSend(commandText);
   queueMicrotask(() => state.composerTextarea?.focus({ preventScroll: true }));
   requestUpdate();
 }
@@ -228,9 +229,10 @@ function beginSlashCommand(
   if (!acceptsSlashCommandArgs(cmd)) {
     state.slashMenuOpen = false;
     resetSlashMenuState(state);
-    commitComposerDraft(props, `/${cmd.name}`);
+    const commandText = `/${cmd.name}`;
+    commitComposerDraft(props, commandText);
     if (submit) {
-      props.onSend();
+      props.onSend(commandText);
     }
     requestUpdate();
     return;
@@ -426,7 +428,7 @@ export function handleSlashArgKeyDown(
   const input = stage.input.trim();
   const choices = getSlashStageChoices(stage);
   if (stage.choices.length > 0) {
-    if (!input && stage.arg.required !== true) {
+    if (!input && stage.arg.required !== true && state.slashMenuIndex === 0) {
       event.preventDefault();
       commitSlashArgValue("", props, requestUpdate);
       return true;
