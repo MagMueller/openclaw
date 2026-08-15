@@ -124,10 +124,25 @@ suite.define(() => {
         await f.shot("a1-menu-filtered");
 
         await f.composer.press("Enter");
+        await f.gateway.waitForRequest("chat.send");
         // No declared arguments: no stage, and the draft is consumed by the send.
         await expect.poll(() => f.menu.count()).toBe(0);
         await expect.poll(() => f.composer.inputValue()).toBe("");
-        await expect.poll(() => f.menu.count()).toBe(0);
+        expect(await f.sentMessages()).toEqual(["/help"]);
+
+        for (const command of ["commands", "tasks", "whoami", "unfocus", "restart"]) {
+          await pickCommand(f, `/${command}`);
+          await f.composer.press("Enter");
+          await f.gateway.waitForRequest("chat.send");
+        }
+        expect(await f.sentMessages()).toEqual([
+          "/help",
+          "/commands",
+          "/tasks",
+          "/whoami",
+          "/unfocus",
+          "/restart",
+        ]);
         await f.shot("a2-executed");
       });
     });
@@ -150,6 +165,24 @@ suite.define(() => {
         await expect.poll(() => f.composer.inputValue()).toBe("/tools ");
         await f.shot("b2-choices");
 
+        await f.composer.fill("/tools invalid");
+        await expect.poll(() => f.optionLabels()).toEqual([]);
+        await f.composer.press("Enter");
+        expect(await f.sentMessages()).toEqual([]);
+        await expect.poll(() => f.stageHint.textContent()).toBe("Choose one of the listed values.");
+
+        await f.composer.press("Escape");
+        await pickCommand(f, "/tools");
+        await f.composer.press("Enter");
+        await f.menu.waitFor({ state: "visible" });
+        await f.composer.press("Enter");
+        await f.gateway.waitForRequest("chat.send");
+        expect(await f.sentMessages()).toEqual(["/tools"]);
+
+        await pickCommand(f, "/tools");
+        await f.composer.press("Enter");
+        await f.menu.waitFor({ state: "visible" });
+
         // Arrow navigation moves the highlight; the staged input keeps focus.
         await f.composer.press("ArrowDown");
         await expect
@@ -162,7 +195,7 @@ suite.define(() => {
 
         await f.composer.press("Enter");
         await f.gateway.waitForRequest("chat.send");
-        expect(await f.sentMessages()).toEqual(["/tools verbose"]);
+        expect(await f.sentMessages()).toEqual(["/tools", "/tools verbose"]);
         await expect.poll(() => f.menu.count()).toBe(0);
         await f.shot("b4-dispatched");
       });
@@ -336,11 +369,40 @@ suite.define(() => {
         await expect.poll(() => f.composer.inputValue()).toBe("/exec ");
         await f.shot("dmulti1-free-draft");
 
-        await f.composer.type("host=sandbox");
+        await f.composer.type(
+          "host=sandbox security=allowlist ask=on-miss node=worker-01",
+        );
         await f.composer.press("Enter");
         await f.gateway.waitForRequest("chat.send");
-        expect(await f.sentMessages()).toEqual(["/exec host=sandbox"]);
+        expect(await f.sentMessages()).toEqual([
+          "/exec host=sandbox security=allowlist ask=on-miss node=worker-01",
+        ]);
         await f.shot("dmulti2-dispatched");
+      });
+    });
+
+    it(`class F — accepted local argument tails reach the Gateway intact (${theme})`, async () => {
+      await mkdir(ARTIFACT_DIR, { recursive: true });
+      await suite.withPage({ colorScheme: theme, viewport: VIEWPORT }, async ({ page }) => {
+        const f = await openChat(page, theme, `cmdargs-f-${theme}`);
+        const cases = [
+          ["/compact instructions", "/compact instructions"],
+          ["/usage full", "/usage full"],
+          ["/export-session path", "/export-session path"],
+        ] as const;
+
+        for (const [draft, expected] of cases) {
+          await pickCommand(f, draft.slice(0, draft.indexOf(" ")));
+          await f.composer.press("Enter");
+          await f.menu.waitFor({ state: "visible" });
+          await f.composer.fill(draft);
+          await f.composer.press("Enter");
+          await f.gateway.waitForRequest("chat.send");
+          expect(await f.sentMessages()).toContain(expected);
+        }
+
+        expect(await f.sentMessages()).toEqual(cases.map(([, expected]) => expected));
+        await f.shot("f-accepted-values");
       });
     });
 

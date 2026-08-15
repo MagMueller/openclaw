@@ -3,9 +3,14 @@ import { html, nothing, render } from "lit";
 import { afterEach, describe, expect, it } from "vitest";
 import { defineChatCommand } from "../../../../../src/auto-reply/commands-registry.shared.js";
 import { makeSlashCommand } from "../../../lib/chat/commands.ln.ts";
-import { SLASH_COMMANDS, type SlashCommandDef } from "../../../lib/chat/commands.ts";
+import {
+  buildSlashCommandText,
+  SLASH_COMMANDS,
+  type SlashCommandDef,
+} from "../../../lib/chat/commands.ts";
 import {
   commitSlashArgValue,
+  handleSlashArgKeyDown,
   isSlashMenuVisible,
   renderSlashMenu,
   selectSlashCommand,
@@ -134,12 +139,128 @@ describe("slash command argument staging", () => {
     expect(harness.options().length).toBeGreaterThan(1);
   });
 
+  it.each(["think", "fast", "verbose", "tools"])(
+    "submits /%s bare when an optional enum stage is empty",
+    (name) => {
+      const harness = createHarness();
+      openCommand(harness, requireCommand(name));
+
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      });
+      expect(handleSlashArgKeyDown(event, harness.props, harness.requestUpdate)).toBe(true);
+      expect(event.defaultPrevented).toBe(true);
+      expect(harness.sent).toEqual([`/${name}`]);
+      expect(harness.stage()).toBeNull();
+    },
+  );
+
+  it("uses the active session thinking levels instead of advertising a broader fallback", () => {
+    const harness = createHarness();
+    harness.props.sessions = {
+      sessions: [
+        {
+          key: PANE_ID,
+          model: "provider/session-model",
+          thinkingLevels: [
+            { id: "off", label: "Off" },
+            { id: "high", label: "High" },
+          ],
+        },
+      ],
+    } as never;
+    openCommand(harness, requireCommand("think"));
+
+    expect(harness.stage()?.choices).toEqual([
+      { value: "default", label: "default" },
+      { value: "off", label: "Off" },
+      { value: "high", label: "High" },
+    ]);
+  });
+
+  it("selects the highlighted value when a required choice is empty", () => {
+    const harness = createHarness();
+    const command = makeSlashCommand("required-choice", {
+      definition: defineChatCommand({
+        key: "required-choice",
+        textAlias: "/required-choice",
+        description: "Required choice.",
+        args: [
+          {
+            name: "value",
+            description: "Required value",
+            type: "string",
+            required: true,
+            choices: ["first", "second"],
+          },
+        ],
+      }),
+    });
+    openCommand(harness, command);
+
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(handleSlashArgKeyDown(event, harness.props, harness.requestUpdate)).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+    expect(harness.sent).toEqual(["/required-choice first"]);
+  });
+
+  it("shows feedback instead of submitting an invalid choice", () => {
+    const harness = createHarness();
+    harness.type("/tools invalid");
+
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(handleSlashArgKeyDown(event, harness.props, harness.requestUpdate)).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+    expect(harness.sent).toEqual([]);
+    expect(harness.stage()?.invalidChoice).toBe(true);
+    expect(harness.hint()).toBe("Choose one of the listed values.");
+  });
+
   it("runs a single-argument command once its choice is picked", () => {
     const harness = createHarness();
     openCommand(harness, requireCommand("tools"));
     harness.pick("verbose");
 
     expect(harness.sent).toEqual(["/tools verbose"]);
+    expect(harness.stage()).toBeNull();
+  });
+
+  it("serializes native command arguments with the command's canonical formatter", () => {
+    const command = requireCommand("exec");
+
+    expect(
+      buildSlashCommandText(command, {
+        host: "sandbox",
+        security: "allowlist",
+        ask: "on-miss",
+        node: "worker-01",
+      }),
+    ).toBe("/exec host=sandbox security=allowlist ask=on-miss node=worker-01");
+  });
+
+  it("does not let a staged command submit over an active queued-message edit", () => {
+    const harness = createHarness();
+    openCommand(harness, requireCommand("tools"));
+    harness.props.onDraftChange("queued replacement");
+    harness.props.queuedEdit = {
+      editingId: "queued-1",
+      onCancel: () => undefined,
+    };
+
+    harness.pick("verbose");
+
+    expect(harness.sent).toEqual([]);
+    expect(harness.draft()).toBe("queued replacement");
     expect(harness.stage()).toBeNull();
   });
 
