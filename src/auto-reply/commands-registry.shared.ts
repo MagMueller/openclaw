@@ -585,8 +585,13 @@ export function buildBuiltinChatCommands(
     defineBuiltinCommand("think", "Set thinking level.", "options", "essential", {
       args: [
         defineCommandArgument("level", "Thinking level", {
-          choices: ({ provider, model, catalog, agentRuntime }) =>
-            listThinkingLevelChoices(provider, model, catalog, agentRuntime),
+          choices: ({ thinkingLevels, provider, model, catalog, agentRuntime }) =>
+            thinkingLevels?.length
+              ? [
+                  "default",
+                  ...thinkingLevels.filter((level) => level.id !== "default"),
+                ]
+              : listThinkingLevelChoices(provider, model, catalog, agentRuntime),
         }),
       ],
       argsMenu: "auto",

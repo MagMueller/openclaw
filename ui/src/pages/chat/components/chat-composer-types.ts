@@ -182,6 +182,8 @@ export type SlashArgStage = {
    * nothing. Cleared as soon as the operator types.
    */
   needsValue: boolean;
+  /** Set when a filtered choice list contains no value matching the input. */
+  invalidChoice: boolean;
 };
 
 export type ChatComposerState = {

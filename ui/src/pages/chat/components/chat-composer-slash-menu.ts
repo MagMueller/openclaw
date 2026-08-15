@@ -49,15 +49,25 @@ function closeSlashMenuIfNeeded(state: ChatComposerState, requestUpdate: () => v
  * levels the active model does not support.
  */
 function getSlashArgScope(props: ChatComposerProps): SlashCommandArgScope | undefined {
-  const model = props.sessions?.sessions?.find((row) => row.key === props.sessionKey)?.model;
-  if (!model) {
+  const session = props.sessions?.sessions?.find((row) => row.key === props.sessionKey);
+  const model = session?.model;
+  const thinkingLevels = session?.thinkingLevels?.map(({ id, label }) => ({ id, label }));
+  if (!model && !thinkingLevels?.length) {
     return undefined;
+  }
+  const scope = thinkingLevels?.length ? { thinkingLevels } : {};
+  if (!model) {
+    return scope;
   }
   const separator = model.indexOf("/");
   if (separator === -1) {
-    return { model };
+    return { ...scope, model };
   }
-  return { provider: model.slice(0, separator), model: model.slice(separator + 1) };
+  return {
+    ...scope,
+    provider: model.slice(0, separator),
+    model: model.slice(separator + 1),
+  };
 }
 
 function findSlashCommandByName(name: string): SlashCommandDef | undefined {
@@ -95,9 +105,27 @@ function buildSlashArgStage(
       choices: resolveSlashCommandArgChoices(command, arg, scope),
       input: "",
       needsValue: false,
+      invalidChoice: false,
     };
   }
   return null;
+}
+
+function abortSlashMenuForQueuedEdit(
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+): boolean {
+  if (!props.queuedEdit?.editingId) {
+    return false;
+  }
+  const state = getChatComposerState(props.paneId);
+  if (!hasVisibleSlashMenuState(state)) {
+    return true;
+  }
+  state.slashMenuOpen = false;
+  resetSlashMenuState(state);
+  requestUpdate();
+  return true;
 }
 
 /** Command text assembled so far, shown as the staged input's prefix. */
@@ -110,6 +138,9 @@ function openSlashArgStage(
   props: ChatComposerProps,
   requestUpdate: () => void,
 ): void {
+  if (abortSlashMenuForQueuedEdit(props, requestUpdate)) {
+    return;
+  }
   const state = getChatComposerState(props.paneId);
   state.slashMenuStage = stage;
   state.slashMenuItems = [];
@@ -135,6 +166,9 @@ function runStagedSlashCommand(
   props: ChatComposerProps,
   requestUpdate: () => void,
 ): void {
+  if (abortSlashMenuForQueuedEdit(props, requestUpdate)) {
+    return;
+  }
   const state = getChatComposerState(props.paneId);
   state.slashMenuOpen = false;
   resetSlashMenuState(state);
@@ -155,6 +189,9 @@ export function commitSlashArgValue(
   props: ChatComposerProps,
   requestUpdate: () => void,
 ): void {
+  if (abortSlashMenuForQueuedEdit(props, requestUpdate)) {
+    return;
+  }
   const state = getChatComposerState(props.paneId);
   const stage = state.slashMenuStage;
   if (!stage) {
@@ -176,6 +213,9 @@ function beginSlashCommand(
   requestUpdate: () => void,
   submit: boolean,
 ): void {
+  if (abortSlashMenuForQueuedEdit(props, requestUpdate)) {
+    return;
+  }
   const state = getChatComposerState(props.paneId);
   const stage = buildSlashArgStage(cmd, {}, props);
   if (stage) {
@@ -256,6 +296,10 @@ export function updateSlashMenu(
   getCurrentValue?: () => string,
 ): void {
   const state = getChatComposerState(props.paneId);
+  if (props.queuedEdit?.editingId) {
+    closeSlashMenuIfNeeded(state, requestUpdate);
+    return;
+  }
   const commandMatch = value.match(/^\/(\S*)$/u);
   if (commandMatch) {
     if (!opts.skipSlashIntent) {
@@ -356,7 +400,56 @@ export function refuseEmptyRequiredSlashArg(
     return false;
   }
   stage.needsValue = true;
+  stage.invalidChoice = false;
   requestUpdate();
+  return true;
+}
+
+/**
+ * Owns Enter/Tab while an argument stage is active. Optional choices submit the
+ * bare command, required choices accept the highlighted item, and a filtered
+ * empty list reports the invalid input instead of falling through to send.
+ */
+export function handleSlashArgKeyDown(
+  event: KeyboardEvent,
+  props: ChatComposerProps,
+  requestUpdate: () => void,
+): boolean {
+  if (event.key !== "Enter" && event.key !== "Tab") {
+    return false;
+  }
+  const state = getChatComposerState(props.paneId);
+  const stage = state.slashMenuStage;
+  if (!stage) {
+    return false;
+  }
+  const input = stage.input.trim();
+  const choices = getSlashStageChoices(stage);
+  if (stage.choices.length > 0) {
+    if (!input && stage.arg.required !== true) {
+      event.preventDefault();
+      commitSlashArgValue("", props, requestUpdate);
+      return true;
+    }
+    const choice = choices[state.slashMenuIndex];
+    event.preventDefault();
+    if (choice) {
+      commitSlashArgValue(choice.value, props, requestUpdate);
+    } else {
+      stage.invalidChoice = true;
+      requestUpdate();
+    }
+    return true;
+  }
+  if (input) {
+    return false;
+  }
+  event.preventDefault();
+  if (stage.arg.required === true) {
+    refuseEmptyRequiredSlashArg(props, requestUpdate);
+  } else {
+    commitSlashArgValue("", props, requestUpdate);
+  }
   return true;
 }
 
@@ -375,7 +468,7 @@ export function getSlashArgTextareaAria(
   return {
     label: t("chat.commands.argValueLabel", { arg: stage.arg.name }),
     required: stage.arg.required === true,
-    invalid: stage.needsValue,
+    invalid: stage.needsValue || stage.invalidChoice,
   };
 }
 
@@ -477,6 +570,9 @@ export function exportMarkdown(props: Pick<ChatComposerProps, "messages" | "assi
  * case this surface exists to prevent.
  */
 function getSlashArgHint(stage: SlashArgStage): string {
+  if (stage.invalidChoice) {
+    return t("chat.commands.argInvalidChoice");
+  }
   if (stage.needsValue) {
     return t("chat.commands.argNeedsValue");
   }
@@ -494,7 +590,7 @@ function renderSlashArgOptions(
   listboxId: string,
 ): TemplateResult | typeof nothing {
   const choices = getSlashStageChoices(stage);
-  const refused = stage.needsValue;
+  const refused = stage.needsValue || stage.invalidChoice;
   return html`
     <div
       id=${listboxId}

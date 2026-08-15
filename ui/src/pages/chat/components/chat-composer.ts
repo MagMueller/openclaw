@@ -34,7 +34,7 @@ import {
   getActiveSlashMenuOptionLabel,
   getSlashArgDraftChoices,
   getSlashArgTextareaAria,
-  refuseEmptyRequiredSlashArg,
+  handleSlashArgKeyDown,
   isSlashMenuVisible,
   paneDomId,
   resetSlashMenuState,
@@ -120,6 +120,12 @@ function handleComposerMenuKeyDown<T>(
 
 export function renderChatComposer(props: ChatComposerProps) {
   const state = getChatComposerState(props.paneId);
+  if (props.queuedEdit?.editingId && state.slashMenuStage) {
+    // A queued-row edit owns the draft after it lifts the row text. Clear a
+    // stale slash stage before it can render or submit over that replacement.
+    state.slashMenuOpen = false;
+    resetSlashMenuState(state);
+  }
   const canCompose = props.canSend;
   const isBusy = props.sending || props.stream !== null;
   const canAbort = Boolean(props.canAbort && props.onAbort);
@@ -338,22 +344,12 @@ export function renderChatComposer(props: ChatComposerProps) {
       }
     }
 
-    // A required argument with no value must refuse Enter and say why. Without
-    // this the send path would dispatch the bare command and the refusal would
-    // be silent -- the exact dead-key bug this surface exists to prevent.
-    if (
-      props.connected &&
-      state.slashMenuOpen &&
-      event.key === "Enter" &&
-      refuseEmptyRequiredSlashArg(props, requestUpdate)
-    ) {
-      event.preventDefault();
-      return;
-    }
-
     // The textarea drives every stage: the command text lives in the draft, so
     // the same keys pick from the current argument's options.
     if (props.connected && state.slashMenuOpen && state.slashMenuStage) {
+      if (handleSlashArgKeyDown(event, props, requestUpdate)) {
+        return;
+      }
       if (
         handleComposerMenuKeyDown(
           event,

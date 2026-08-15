@@ -35,6 +35,7 @@ export type CommandArgChoiceContext = {
   model?: string;
   agentRuntime?: string;
   catalog?: ThinkingCatalogEntry[];
+  thinkingLevels?: readonly { id: string; label: string }[];
   command: ChatCommandDefinition;
   arg: CommandArgDefinition;
 };
