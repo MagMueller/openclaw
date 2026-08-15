@@ -589,7 +589,9 @@ export function buildBuiltinChatCommands(
             thinkingLevels?.length
               ? [
                   "default",
-                  ...thinkingLevels.filter((level) => level.id !== "default"),
+                  ...thinkingLevels
+                    .filter((level) => level.id !== "default")
+                    .map(({ id, label }) => ({ value: id, label })),
                 ]
               : listThinkingLevelChoices(provider, model, catalog, agentRuntime),
         }),
