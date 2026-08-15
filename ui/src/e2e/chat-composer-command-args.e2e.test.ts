@@ -51,7 +51,6 @@ type Fixture = {
 
 async function openChat(page: Page, theme: Theme, sessionId: string): Promise<Fixture> {
   const gateway = await installMockGateway(page, {
-    deferredMethods: ["chat.send"],
     methodResponses: { "chat.startup": startupResponse(sessionId) },
   });
   await page.goto(`${suite.server.baseUrl}chat`);
