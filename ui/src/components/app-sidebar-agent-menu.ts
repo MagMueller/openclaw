@@ -11,6 +11,7 @@ import { t } from "../i18n/index.ts";
 import { normalizeAgentLabel } from "../lib/agents/display.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../lib/external-link.ts";
 import { openExternalUrlSafe } from "../lib/open-external-url.ts";
+import { COMMUNITY_DISCORD_URL } from "../lib/product-links.ts";
 import { normalizeAgentId } from "../lib/sessions/session-key.ts";
 import { renderAgentSelectAvatar, renderAgentSelectCopy } from "./agent-select.ts";
 import { icons, type IconName } from "./icons.ts";
@@ -34,7 +35,7 @@ const IDENTITY_MENU_LINKS: ReadonlyArray<{
     icon: "messageSquare",
     label: () => t("agentChip.getHelp"),
   },
-  { href: "https://discord.gg/clawd", icon: "users", label: () => t("agentChip.discord") },
+  { href: COMMUNITY_DISCORD_URL, icon: "users", label: () => t("agentChip.discord") },
   {
     href: "https://docs.openclaw.ai/releases",
     icon: "scrollText",
