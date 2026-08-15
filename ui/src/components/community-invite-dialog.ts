@@ -6,11 +6,11 @@ import { css, html, svg } from "lit";
 import { inferControlUiPublicAssetPath } from "../app/public-assets.ts";
 import { t } from "../i18n/index.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../lib/external-link.ts";
+import { COMMUNITY_DISCORD_URL } from "../lib/product-links.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
 import { strokeIcon } from "./icons-tools.ts";
 import { icons } from "./icons.ts";
 
-const COMMUNITY_INVITE_URL = "https://discord.gg/clawd";
 /** Read by the scheduler chunk, which owns settling the record on this event. */
 export const COMMUNITY_INVITE_SETTLED_EVENT = "community-invite-settled";
 
@@ -40,12 +40,19 @@ class OpenClawCommunityInviteDialog extends OpenClawLitElement {
       animation: invite-enter 180ms ease-out both;
     }
 
-    /* Same phone idiom .app-toast uses: a corner card degenerates at these widths. */
+    /* Same phone idiom .app-toast uses: a corner card degenerates at these widths.
+       The bottom offset also grows here: on a phone this is where the chat
+       composer and other bottom-docked controls live, and a fixed-position card
+       would paint on top of them instead of beside them like it does at desktop
+       width. There is no shared "current bottom chrome height" signal across
+       routes to measure against, so this clears the tallest ordinary composer
+       instead of the exact one — an accepted fixed margin over a live measurement. */
     @media (max-width: 768px),
       (max-width: 932px) and (max-height: 500px) and (orientation: landscape) {
       :host {
         left: max(12px, var(--safe-area-left, 0px));
         right: max(12px, var(--safe-area-right, 0px));
+        bottom: calc(84px + var(--safe-area-bottom, 0px));
         width: auto;
       }
     }
@@ -268,7 +275,7 @@ class OpenClawCommunityInviteDialog extends OpenClawLitElement {
           <button
             class="invite__close"
             type="button"
-            aria-label=${t("common.dismiss")}
+            aria-label=${t("communityInvite.dismissForever")}
             @click=${() => this.settle("dismissed")}
           >
             ${icons.x}
@@ -280,7 +287,7 @@ class OpenClawCommunityInviteDialog extends OpenClawLitElement {
           <p class="invite__text">${t("communityInvite.body")}</p>
           <a
             class="invite__cta"
-            href=${COMMUNITY_INVITE_URL}
+            href=${COMMUNITY_DISCORD_URL}
             target=${EXTERNAL_LINK_TARGET}
             rel=${buildExternalLinkRel()}
             @click=${() => this.settle("joined")}

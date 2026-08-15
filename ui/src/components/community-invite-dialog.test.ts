@@ -45,8 +45,12 @@ describe("community invite card", () => {
     expect(card.shadowRoot?.querySelector("[autofocus]")).toBeNull();
   });
 
-  it("dismisses from the close button", () => {
-    shadowQuery(".invite__close").click();
+  it("dismisses from the close button, whose label communicates permanence", () => {
+    const close = shadowQuery(".invite__close");
+    // A bare "Dismiss" reads as reversible; the card only ever shows once, so the
+    // label has to say so.
+    expect(close.getAttribute("aria-label")).toBe("Dismiss and don't show again");
+    close.click();
     expect(outcomes).toEqual(["dismissed"]);
   });
 

@@ -374,6 +374,7 @@ export const en: TranslationMap = {
     title: "Come build with us",
     body: "Ask questions, report bugs, and show other builders what you're making.",
     action: "Join us on Discord",
+    dismissForever: "Dismiss and don't show again",
   },
   updates: {
     adminRequired: "Administrator access is required to change update settings or start an update.",
