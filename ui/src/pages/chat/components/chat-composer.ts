@@ -315,10 +315,7 @@ export function renderChatComposer(props: ChatComposerProps) {
       target.value = hostDraft;
       adjustTextareaHeight(target);
     }
-    // The stage is a function of the draft, so a draft consumed by the send has
-    // to take its menu with it. Sending is the only draft mutation that does not
-    // raise an input event, and without this the listbox and the textarea's
-    // combobox wiring outlive the command they described.
+    // Sending skips input events, so the draft remains the source of truth for the staged listbox.
     updateSlashMenu(hostDraft, requestUpdate, props, { skipSlashIntent: true });
   };
 
@@ -344,8 +341,7 @@ export function renderChatComposer(props: ChatComposerProps) {
       }
     }
 
-    // The textarea drives every stage: the command text lives in the draft, so
-    // the same keys pick from the current argument's options.
+    // The textarea owns every argument stage.
     if (props.connected && state.slashMenuOpen && state.slashMenuStage) {
       if (handleSlashArgKeyDown(event, props, requestUpdate)) {
         return;
