@@ -4062,7 +4062,7 @@ describe("chat slash menu accessibility", () => {
     keydownComposer(container, "Enter");
 
     expect(onSend).toHaveBeenCalledOnce();
-    expect(onSend).toHaveBeenCalledWith(undefined);
+    expect(onSend.mock.calls[0]).toEqual([]);
     expect(draft).toBe("/name recalled from history");
   });
 
