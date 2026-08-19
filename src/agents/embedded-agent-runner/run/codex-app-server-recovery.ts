@@ -1,7 +1,16 @@
 /**
  * Detects Codex app-server failures that should retry with recovery.
  */
+import { projectAgentRunAttemptTerminal } from "../../agent-run-terminal-outcome.js";
 import type { EmbeddedRunAttemptResult } from "./types.js";
+
+/** Completion-watch timeout must remain visible even when delivery evidence exists. */
+export function shouldSurfaceCodexCompletionTimeout(attempt: EmbeddedRunAttemptResult): boolean {
+  return (
+    attempt.codexAppServerFailure?.kind === "turn_completion_idle_timeout" &&
+    projectAgentRunAttemptTerminal(attempt.terminal).timedOut
+  );
+}
 
 export function hasCodexAppServerRecoveryRetryBudget(params: {
   alreadyRetried: boolean;

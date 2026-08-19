@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage } from "../../llm/types.js";
+import { AgentRunTerminalOutcomeError } from "../agent-run-terminal-error.js";
 import type { EmbeddedRunAttemptResult } from "../embedded-agent-runner/run/types.js";
 import { EmptySettledTurnFinalizationError } from "./settled-turn-finalization-outcome.js";
 import {
@@ -143,6 +144,23 @@ describe("assertSettledTurnFinalizationResult", () => {
         }),
       ),
     ).toThrow("did not complete successfully");
+  });
+
+  it("preserves a finalizer-owned timeout as a canonical terminal outcome", () => {
+    try {
+      projectSettledTurnFinalizationAttemptResult(
+        successfulAttempt({
+          terminal: { kind: "timeout", phase: "prompt", source: "run_budget", aborted: true },
+        }),
+      );
+      throw new Error("expected timeout");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AgentRunTerminalOutcomeError);
+      expect((error as AgentRunTerminalOutcomeError).terminalOutcome).toMatchObject({
+        status: "timeout",
+        reason: "hard_timeout",
+      });
+    }
   });
 
   it("rejects a full attempt that compacted before producing its answer", () => {

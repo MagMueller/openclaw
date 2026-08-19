@@ -7,7 +7,7 @@ import {
   buildEmbeddedRunnerAssistant,
   makeEmbeddedRunnerAttempt,
 } from "../../test-helpers/embedded-agent-runner-e2e-fixtures.js";
-import { handleEmbeddedAssistantFailure } from "./assistant-failure.js";
+import { handleEmbeddedAssistantFailure } from "./assistant-failure-policy.js";
 import { resolveEmbeddedRunAttemptTerminalState } from "./terminal-outcome.js";
 
 const providerRuntimeMocks = vi.hoisted(() => ({

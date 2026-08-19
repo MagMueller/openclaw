@@ -488,19 +488,24 @@ async function runLoop(
         return;
       }
 
-      if (pendingMessages.length === 0) {
-        if (
-          await config.shouldStopAfterTurn?.({
-            message,
-            toolResults,
-            context: currentContext,
-            newMessages,
-          })
-        ) {
-          await emit({ type: "agent_end", messages: newMessages });
-          return;
-        }
+      const shouldEvaluateHardStop = config.shouldStopAfterTurnBeforeSteering === true;
+      // A hard settled-turn stop owns this checkpoint. Steering already drained
+      // while the batch was running is intentionally discarded instead of
+      // authorizing another provider turn beyond the caller's budget.
+      if (
+        (shouldEvaluateHardStop || pendingMessages.length === 0) &&
+        (await config.shouldStopAfterTurn?.({
+          message,
+          toolResults,
+          context: currentContext,
+          newMessages,
+        }))
+      ) {
+        await emit({ type: "agent_end", messages: newMessages });
+        return;
+      }
 
+      if (pendingMessages.length === 0) {
         const steering = getSteeringAtCheckpoint(config);
         pendingMessages = Array.isArray(steering) ? steering : await steering;
       }

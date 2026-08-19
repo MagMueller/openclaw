@@ -32,6 +32,10 @@ import type {
   SkillWorkshopRunOptions,
 } from "../../../skills/workshop/types.js";
 import type { AdmittedRunContext, PreparedAgentRunAdmission } from "../../admitted-run-context.js";
+import type {
+  AssistantTurnBudget,
+  AssistantTurnAttemptBudget,
+} from "../../assistant-turn-budget.js";
 import type { ExecApprovalContinuationPromptRange } from "../../bash-tools.exec-approval-output.js";
 import type { ExecElevatedDefaults, ExecToolDefaults } from "../../bash-tools.exec-types.js";
 import type { BootstrapContextRunKind } from "../../bootstrap-mode.js";
@@ -445,4 +449,8 @@ export type RunEmbeddedAgentParams = {
   oneShotCliRun?: boolean;
   /** Durable plugin state is unavailable after this run exits. */
   ephemeralRunState?: boolean;
+  /** Trusted local-only budget shared across every retry and model fallback. */
+  assistantTurnBudget?: AssistantTurnBudget;
+  /** Host-created attempt counter; never handed to plugin harnesses. */
+  assistantTurnAttemptBudget?: AssistantTurnAttemptBudget;
 };

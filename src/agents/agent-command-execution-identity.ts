@@ -186,6 +186,7 @@ export function sanitizePublicAgentCommandIngressOpts(
     executionIdentityAdmission: undefined,
     operationalRunInstance: undefined,
     cronCreatorAuthorityCapability: undefined,
+    assistantTurnBudget: undefined,
     onAdmittedRunContext: undefined,
   });
 }

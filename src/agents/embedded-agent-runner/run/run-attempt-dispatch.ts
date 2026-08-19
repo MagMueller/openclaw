@@ -112,6 +112,7 @@ type AttemptControl = {
   getPostCompactionAbortError: () => Error | undefined;
   setPostCompactionAbortController: (controller: AbortController | undefined) => void;
   clearPostCompactionAbortController: (controller: AbortController) => void;
+  assistantTurnAttemptBudget?: EmbeddedRunAttemptParams["assistantTurnAttemptBudget"];
 };
 
 export async function dispatchEmbeddedRunAttempt(input: {
@@ -508,6 +509,7 @@ export async function dispatchEmbeddedRunAttempt(input: {
     onUserMessagePersisted: control.onUserMessagePersisted,
     onUserMessagePersistenceInvalidated: control.onUserMessagePersistenceInvalidated,
     onAssistantErrorMessagePersisted: params.onAssistantErrorMessagePersisted,
+    assistantTurnAttemptBudget: control.assistantTurnAttemptBudget,
   };
   const callerIdentity = createAdmittedGatewayToolCallerIdentity({
     admittedRunContext: attemptParams.admittedRunContext,

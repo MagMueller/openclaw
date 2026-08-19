@@ -13,7 +13,10 @@ import type { prepareAndDispatchEmbeddedRunAttempt } from "./attempt-dispatch-pr
 import type { normalizeEmbeddedRunAttempt } from "./attempt-normalization.js";
 import { isCurrentAttemptReplaySafe } from "./attempt-terminal-evidence.js";
 import { buildEmbeddedRunBlockedResult } from "./blocked-run-result.js";
-import { resolveCodexAppServerRecoveryRetry } from "./codex-app-server-recovery.js";
+import {
+  resolveCodexAppServerRecoveryRetry,
+  shouldSurfaceCodexCompletionTimeout as resolveShouldSurfaceCodexCompletionTimeout,
+} from "./codex-app-server-recovery.js";
 import { resolveCompactionLiveModelSelection } from "./compaction-live-model-selection.js";
 import type { createEmbeddedRunCompactionRuntime } from "./compaction-runtime.js";
 import type { createEmbeddedRunContextRecoveryState } from "./context-recovery-state.js";
@@ -168,8 +171,7 @@ export async function recoverEmbeddedRunAttempt(input: {
   if (!currentAttemptReplaySafe) {
     return {
       action: "proceed",
-      shouldSurfaceCodexCompletionTimeout:
-        attempt.codexAppServerFailure?.kind === "turn_completion_idle_timeout" && timedOut,
+      shouldSurfaceCodexCompletionTimeout: resolveShouldSurfaceCodexCompletionTimeout(attempt),
     };
   }
 
@@ -310,9 +312,7 @@ export async function recoverEmbeddedRunAttempt(input: {
       );
       return retry({ codexAppServerRecoveryRetries: input.codexAppServerRecoveryRetries + 1 });
     }
-    shouldSurfaceCodexCompletionTimeout =
-      attempt.codexAppServerFailure?.kind === "turn_completion_idle_timeout" &&
-      projectAgentRunAttemptTerminal(attempt.terminal).timedOut;
+    shouldSurfaceCodexCompletionTimeout = resolveShouldSurfaceCodexCompletionTimeout(attempt);
     if (
       attempt.codexAppServerFailure &&
       !hasRecoverableCodexAppServerTimeoutOutcome &&

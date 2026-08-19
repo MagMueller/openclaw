@@ -281,6 +281,12 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
   shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>;
 
   /**
+   * Evaluate `shouldStopAfterTurn` before already-drained steering starts another provider turn.
+   * Reserved for hard, run-scoped admission limits; normal graceful stops keep steering priority.
+   */
+  shouldStopAfterTurnBeforeSteering?: boolean;
+
+  /**
    * Called after `turn_end` and before the loop decides whether another provider request should start.
    * Return replacement context/model/thinking state to affect the next turn in this run.
    * Return undefined to keep using the current context/config.

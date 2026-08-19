@@ -1496,6 +1496,50 @@ describe("agentLoop tool termination", () => {
     expect(getSteeringMessages).toHaveBeenCalled();
   });
 
+  it("lets a hard settled-turn stop outrank steering already queued between tools", async () => {
+    const steer = { role: "user" as const, content: "keep going", timestamp: 2 };
+    const queued: AgentMessage[] = [];
+    const secondExecute = vi.fn(async () => ({ content: [], details: {} }));
+    const requestMessages: Message[][] = [];
+    const shouldStopAfterTurn = vi.fn(() => true);
+
+    await runAgentLoop(
+      [{ role: "user", content: "start", timestamp: 1 }],
+      {
+        systemPrompt: "",
+        messages: [],
+        tools: [
+          {
+            ...makeTool("first", []),
+            execute: async () => {
+              queued.push(steer);
+              return { content: [{ type: "text", text: "first result" }], details: {} };
+            },
+          },
+          { ...makeTool("second", []), execute: secondExecute },
+        ],
+      },
+      {
+        ...config,
+        toolExecution: "sequential",
+        getSteeringMessages: async () => queued.splice(0, 1),
+        shouldStopAfterTurn,
+        shouldStopAfterTurnBeforeSteering: true,
+      },
+      () => {},
+      undefined,
+      createTurnSequenceStream(
+        [[{ type: "toolCall", id: "stop-first", name: "first", arguments: {} }]],
+        requestMessages,
+      ),
+    );
+
+    expect(requestMessages).toHaveLength(1);
+    expect(secondExecute).not.toHaveBeenCalled();
+    expect(queued).toEqual([]);
+    expect(shouldStopAfterTurn).toHaveBeenCalledOnce();
+  });
+
   it("delivers steering admitted while the final follow-up drain is pending", async () => {
     const followUpDrainStarted = createDeferred();
     const releaseFollowUpDrain = createDeferred();

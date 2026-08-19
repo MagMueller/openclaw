@@ -4,6 +4,7 @@ import { resolveSessionTranscriptRuntimeTarget } from "../../../config/sessions/
 import type { resolveContextEngine } from "../../../context-engine/registry.js";
 import { attachModelProviderRuntimePluginHandle } from "../../../plugins/provider-hook-runtime.js";
 import { createTrajectoryRuntimeRecorder } from "../../../trajectory/runtime.js";
+import type { AssistantTurnAttemptBudget } from "../../assistant-turn-budget.js";
 import { agentHarnessBuildsOpenClawTools } from "../../harness/selection.js";
 import { buildAgentRuntimePlan } from "../../runtime-plan/build.js";
 import { createEmbeddedRunReplayState } from "../replay-state.js";
@@ -44,6 +45,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
   getPostCompactionAbortError: () => Error | undefined;
   setPostCompactionAbortController: (controller: AbortController | undefined) => void;
   clearPostCompactionAbortController: (controller: AbortController) => void;
+  assistantTurnAttemptBudget?: AssistantTurnAttemptBudget;
 }) {
   const {
     runInput,
@@ -274,6 +276,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
       getPostCompactionAbortError: input.getPostCompactionAbortError,
       setPostCompactionAbortController: input.setPostCompactionAbortController,
       clearPostCompactionAbortController: input.clearPostCompactionAbortController,
+      assistantTurnAttemptBudget: input.assistantTurnAttemptBudget,
     },
     bootstrapPromptWarningSignaturesSeen: input.bootstrapPromptWarningSignaturesSeen,
     suppressNextUserMessagePersistence: sessionPromptState.suppressNextUserMessagePersistence,

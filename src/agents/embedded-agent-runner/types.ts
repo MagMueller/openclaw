@@ -197,6 +197,7 @@ export type EmbeddedAgentRunMeta = {
       | "role_ordering"
       | "image_size"
       | "retry_limit"
+      | "max_turns"
       | "incomplete_turn"
       | "hook_block";
     message: string;

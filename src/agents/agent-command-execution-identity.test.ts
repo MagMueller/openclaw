@@ -33,11 +33,16 @@ describe("sanitizePublicAgentCommandIngressOpts", () => {
     const opts = {
       prompt: "create an automation",
       cronCreatorAuthorityCapability: forgedCapability,
+      assistantTurnBudget: {
+        maxTurns: 2,
+        remainingOrdinaryTurns: 0,
+      },
     } as unknown as AgentCommandIngressOpts;
 
     expect(sanitizePublicAgentCommandIngressOpts(opts)).toMatchObject({
       prompt: "create an automation",
       cronCreatorAuthorityCapability: undefined,
+      assistantTurnBudget: undefined,
     });
   });
 });

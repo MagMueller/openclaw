@@ -199,6 +199,9 @@ async function runEmbeddedAgentInternal(
       // Subscription-scoped claude-cli auth executes via the CLI backend;
       // resolved post-admission so dispatched runs obey the same lifecycle,
       // placement, and concurrency gates as native embedded runs.
+      if (params.assistantTurnBudget && params.cliBackendDispatch === "subscription-auth") {
+        throw new Error("--max-turns requires the embedded OpenClaw agent runtime");
+      }
       const cliDispatched = await runEmbeddedAgentViaCliBackendIfEligible(params);
       if (cliDispatched) {
         return cliDispatched;

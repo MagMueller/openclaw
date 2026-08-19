@@ -704,6 +704,47 @@ describe("runAgentHarnessAttempt", () => {
     expect(handedOffRuntime).toBeUndefined();
   });
 
+  it("keeps local max-turn admission state out of plugin harness handoffs", async () => {
+    let handedOffBudget: unknown;
+    let handedOffAttemptBudget: unknown;
+    registerAgentHarness(
+      {
+        id: "codex",
+        label: "Codex",
+        supports: () => ({ supported: true, priority: 100 }),
+        runAttempt: async (attemptParams) => {
+          const record = attemptParams as unknown as Record<string, unknown>;
+          handedOffBudget = record.assistantTurnBudget;
+          handedOffAttemptBudget = record.assistantTurnAttemptBudget;
+          return createAttemptResult("codex");
+        },
+      },
+      { ownerPluginId: "codex" },
+    );
+    const params = createAttemptParams(
+      providerRuntimeConfig("codex", "codex"),
+    ) as EmbeddedRunAttemptParams;
+    params.assistantTurnBudget = {
+      maxTurns: 2,
+      ordinaryTurnLimit: 1,
+      completedOrdinaryTurns: 0,
+      finalizationStarted: false,
+      remainingOrdinaryTurns: 1,
+      beginAttempt: vi.fn(),
+      tryBeginFinalization: vi.fn(),
+    };
+    params.assistantTurnAttemptBudget = {
+      reachedLimit: false,
+      recordCompletedTurn: vi.fn(),
+      reconcileCompletedTurns: vi.fn(),
+    };
+
+    await runAgentHarnessAttempt(params);
+
+    expect(handedOffBudget).toBeUndefined();
+    expect(handedOffAttemptBudget).toBeUndefined();
+  });
+
   it("persists plugin trajectory events through the selected harness host capability", async () => {
     const tempDir = trajectoryTempDirs.make("openclaw-harness-trajectory-");
     const storePath = path.join(tempDir, "agents", "main", "sessions", "sessions.json");

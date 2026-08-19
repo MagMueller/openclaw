@@ -214,6 +214,15 @@ export async function prepareEmbeddedAttemptAgentSession(input: {
   // Publish ownership before post-construction hooks. Outer cleanup must dispose
   // the session if tool activation or terminal-hook installation fails.
   input.onSessionCreated(activeSession);
+  if (attempt.assistantTurnAttemptBudget) {
+    const existingShouldStopAfterTurn = activeSession.agent.shouldStopAfterTurn;
+    activeSession.agent.shouldStopAfterTurnBeforeSteering = true;
+    activeSession.agent.shouldStopAfterTurn = async (turn, signal) => {
+      const existingStop = (await existingShouldStopAfterTurn?.(turn, signal)) === true;
+      const budgetStop = attempt.assistantTurnAttemptBudget?.recordCompletedTurn() === true;
+      return existingStop || budgetStop;
+    };
+  }
   installToolLoopRecoveryCleanup({ agent: activeSession.agent, runId: attempt.runId });
   activeSession.setActiveToolsByName(sessionToolAllowlist);
   const setActiveSessionSystemPrompt = (nextSystemPrompt: string) => {

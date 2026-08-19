@@ -1,7 +1,15 @@
 import { isSilentReplyText } from "../../auto-reply/tokens.js";
-import { normalizeAgentRunAttemptTerminal } from "../agent-run-terminal-outcome.js";
+import { AgentRunTerminalOutcomeError } from "../agent-run-terminal-error.js";
+import {
+  buildAgentRunTerminalOutcomeFromAttempt,
+  classifyAgentRunTerminalOutcome,
+  normalizeAgentRunAttemptTerminal,
+} from "../agent-run-terminal-outcome.js";
 import { resolveFinalAssistantVisibleText } from "../embedded-agent-runner/run/helpers.js";
-import { EmptySettledTurnFinalizationError } from "./settled-turn-finalization-outcome.js";
+import {
+  EmptySettledTurnFinalizationError,
+  InvalidSettledTurnFinalizationError,
+} from "./settled-turn-finalization-outcome.js";
 import type {
   AgentHarnessAttemptResult,
   AgentHarnessSettledTurnFinalizationResult,
@@ -15,6 +23,13 @@ const ALLOWED_SETTLED_FINALIZATION_RESULT_KEYS = new Set([
   "assistantMessageIndex",
   "diagnosticTrace",
 ]);
+
+function invalidFinalizationResult(
+  message: string,
+  result: Pick<AgentHarnessSettledTurnFinalizationResult, "usage">,
+): InvalidSettledTurnFinalizationError {
+  return new InvalidSettledTurnFinalizationError(message, result.usage);
+}
 
 function assistantContainsToolCall(
   assistant: AgentHarnessSettledTurnFinalizationResult["assistant"],
@@ -35,24 +50,34 @@ export function assertSettledTurnFinalizationResult(
     (key) => !ALLOWED_SETTLED_FINALIZATION_RESULT_KEYS.has(key),
   );
   if (unknownKey) {
-    throw new Error(`Settled-turn finalization returned unsupported result field: ${unknownKey}`);
+    throw invalidFinalizationResult(
+      `Settled-turn finalization returned unsupported result field: ${unknownKey}`,
+      result,
+    );
   }
   if (!result.assistant || result.assistant.role !== "assistant") {
-    throw new Error("Settled-turn finalization did not return an assistant message");
+    throw invalidFinalizationResult(
+      "Settled-turn finalization did not return an assistant message",
+      result,
+    );
   }
   if (result.assistant.stopReason === "toolUse" || assistantContainsToolCall(result.assistant)) {
-    throw new Error("Settled-turn finalization returned a tool call");
+    throw invalidFinalizationResult("Settled-turn finalization returned a tool call", result);
   }
   if (result.assistant.stopReason !== "stop") {
-    throw new Error(
+    throw invalidFinalizationResult(
       `Settled-turn finalization returned unsuccessful stop reason: ${result.assistant.stopReason}`,
+      result,
     );
   }
   if (
     result.assistantMessageIndex !== undefined &&
     (!Number.isSafeInteger(result.assistantMessageIndex) || result.assistantMessageIndex < 0)
   ) {
-    throw new Error("Settled-turn finalization returned an invalid assistant message index");
+    throw invalidFinalizationResult(
+      "Settled-turn finalization returned an invalid assistant message index",
+      result,
+    );
   }
   resolveSettledTurnFinalizationText(result);
   return result;
@@ -66,7 +91,10 @@ export function resolveSettledTurnFinalizationText(
     throw new EmptySettledTurnFinalizationError(result);
   }
   if (isSilentReplyText(text)) {
-    throw new Error("Settled-turn finalization completed without a visible answer");
+    throw invalidFinalizationResult(
+      "Settled-turn finalization completed without a visible answer",
+      result,
+    );
   }
   return text;
 }
@@ -80,6 +108,18 @@ export function projectSettledTurnFinalizationAttemptResult(
 ): AgentHarnessSettledTurnFinalizationResult {
   const terminal =
     "terminal" in result ? result.terminal : normalizeAgentRunAttemptTerminal(result);
+  const terminalOutcome = buildAgentRunTerminalOutcomeFromAttempt({
+    terminal,
+    promptTimeoutOutcome: result.promptTimeoutOutcome,
+    assistant: result.currentAttemptAssistant,
+  });
+  const terminalClassification = classifyAgentRunTerminalOutcome(terminalOutcome);
+  if (terminalClassification === "timeout" || terminalClassification === "cancellation") {
+    throw new AgentRunTerminalOutcomeError(
+      terminalOutcome.error ?? new Error("Settled-turn finalization was interrupted"),
+      terminalOutcome,
+    );
+  }
   if (
     terminal.kind !== "ok" ||
     (result.compactionCount ?? 0) > 0 ||
@@ -89,7 +129,10 @@ export function projectSettledTurnFinalizationAttemptResult(
     result.codexAppServerFailure ||
     result.cloudCodeAssistFormatError
   ) {
-    throw new Error("Settled-turn finalization attempt did not complete successfully");
+    throw new InvalidSettledTurnFinalizationError(
+      "Settled-turn finalization attempt did not complete successfully",
+      result.attemptUsage,
+    );
   }
   if (
     result.toolMetas.length > 0 ||
@@ -119,11 +162,17 @@ export function projectSettledTurnFinalizationAttemptResult(
     (result.successfulCronAdds ?? 0) > 0 ||
     result.yieldDetected
   ) {
-    throw new Error("Settled-turn finalization attempt reported capability activity");
+    throw new InvalidSettledTurnFinalizationError(
+      "Settled-turn finalization attempt reported capability activity",
+      result.attemptUsage,
+    );
   }
   const assistant = result.currentAttemptCompletedAssistant;
   if (!assistant) {
-    throw new Error("Settled-turn finalization attempt returned no completed assistant message");
+    throw new InvalidSettledTurnFinalizationError(
+      "Settled-turn finalization attempt returned no completed assistant message",
+      result.attemptUsage,
+    );
   }
   return assertSettledTurnFinalizationResult({
     assistant,

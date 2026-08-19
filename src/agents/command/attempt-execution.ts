@@ -692,6 +692,9 @@ export function runAgentAttempt(params: {
   const isCliExecutionProvider = sessionRuntimeOverride
     ? sessionCliRuntime !== undefined
     : isCliProvider(cliExecutionProvider, params.cfg);
+  if (params.opts.assistantTurnBudget && isCliExecutionProvider) {
+    throw new Error("--max-turns requires the embedded OpenClaw agent runtime");
+  }
   const completionRetainsRequesterTools =
     trustedSubagentAnnounceHandoff &&
     !isRawModelRun &&
@@ -1229,6 +1232,7 @@ export function runAgentAttempt(params: {
     cleanupBundleMcpOnRunEnd: params.opts.cleanupBundleMcpOnRunEnd,
     oneShotCliRun: params.opts.oneShotCliRun,
     ephemeralRunState: params.opts.ephemeralRunState,
+    assistantTurnBudget: params.opts.assistantTurnBudget,
     modelRun: params.opts.modelRun,
     promptMode: params.opts.promptMode,
     disableTools,

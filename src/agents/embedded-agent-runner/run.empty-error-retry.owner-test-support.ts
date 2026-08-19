@@ -1,7 +1,7 @@
 import type { AssistantMessage } from "openclaw/plugin-sdk/llm";
 import { describe, expect, it, vi } from "vitest";
 import { makeAttemptResult } from "./run.overflow-compaction.fixture.js";
-import { handleEmbeddedAssistantFailure } from "./run/assistant-failure.js";
+import { handleEmbeddedAssistantFailure } from "./run/assistant-failure-policy.js";
 import { resolveEmbeddedRunAttemptTerminalState } from "./run/terminal-outcome.js";
 import type { EmbeddedRunAttemptResult } from "./run/types.js";
 

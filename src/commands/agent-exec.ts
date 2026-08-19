@@ -7,6 +7,7 @@ import { TextDecoder } from "node:util";
 import { readByteStreamWithLimit } from "@openclaw/media-core/read-byte-stream-with-limit";
 import { parseStrictNonNegativeInteger } from "@openclaw/normalization-core/number-coercion";
 import { findAgentRunTerminalOutcome } from "../agents/agent-run-terminal-error.js";
+import { createAssistantTurnBudget } from "../agents/assistant-turn-budget.js";
 import type { EmbeddedAgentRunMeta } from "../agents/embedded-agent.js";
 import { isExecutionIdentityCollectionEnabled } from "../audit/audit-config.js";
 import { formatCliCommand } from "../cli/command-format.js";
@@ -38,6 +39,7 @@ export type AgentExecCliOptions = {
   localModelLean?: boolean;
   authEnvOnly?: boolean;
   timeout?: string;
+  maxTurns?: string;
   json?: boolean;
 };
 
@@ -451,6 +453,17 @@ function normalizeTimeoutSeconds(value: string | undefined): string {
   return raw;
 }
 
+function normalizeMaxTurns(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = parseStrictNonNegativeInteger(value);
+  if (parsed === undefined || parsed < 2) {
+    throw new Error("--max-turns must be an integer greater than or equal to 2.");
+  }
+  return parsed;
+}
+
 function normalizeFallbacks(model: string | undefined, values: string[] | undefined): string[] {
   const fallbacks = (values ?? []).map((value) => value.trim()).filter(Boolean);
   if (fallbacks.length > 0 && !model?.trim()) {
@@ -640,6 +653,9 @@ export async function agentExecCommand(
       : undefined;
     const pluginInstallRoots = pluginInstallContext?.resolvePluginInstallRoots();
     const timeout = normalizeTimeoutSeconds(opts.timeout);
+    const maxTurns = normalizeMaxTurns(opts.maxTurns);
+    const assistantTurnBudget =
+      maxTurns === undefined ? undefined : createAssistantTurnBudget(maxTurns);
     const fallbacks = normalizeFallbacks(opts.model, opts.fallback);
     const {
       resolveAgentDir,
@@ -728,6 +744,7 @@ export async function agentExecCommand(
           oneShotCliRun: true,
           ephemeralRunState: temporaryStateDir !== undefined,
           abortSignal: signalBridge?.signal,
+          assistantTurnBudget,
           onModelFallbackExhausted: () => {
             fallbackExhausted = true;
           },

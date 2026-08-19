@@ -217,6 +217,8 @@ export function resolveSettledToolTerminalContinuationInstruction(params: {
   modelId?: string;
   modelApi?: string;
   executionContract?: string;
+  /** Trusted max-turn finalization may use any provider after settlement is proven. */
+  allowProviderAgnostic?: boolean;
   allowEmptyStopContinuation?: boolean;
   payloadCount: number;
   hasTerminalToolPresentation?: boolean;
@@ -330,6 +332,7 @@ export function resolveSettledToolTerminalContinuationInstruction(params: {
     return null;
   }
   if (
+    params.allowProviderAgnostic !== true &&
     !shouldApplyNonVisibleTurnRetryGuard({
       provider: params.provider,
       modelId: params.modelId,

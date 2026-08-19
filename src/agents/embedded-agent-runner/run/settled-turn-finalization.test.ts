@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getReplyPayloadMetadata } from "../../../auto-reply/reply-payload.js";
 import { createTestAdmittedRunContext } from "../../admitted-run-context.test-support.js";
+import { AgentRunTerminalOutcomeError } from "../../agent-run-terminal-error.js";
+import { createAssistantTurnBudget } from "../../assistant-turn-budget.js";
+import { InvalidSettledTurnFinalizationError } from "../../harness/settled-turn-finalization-outcome.js";
 import {
   buildEmbeddedRunnerAssistant,
   makeEmbeddedRunnerAttempt,
@@ -237,5 +240,132 @@ describe("prepareTerminalWithSettledTurnFinalization", () => {
     expect(result.finalizationOutcome).toBe("failed");
     expect(result.attempt).toBe(attempt);
     expect(result.prepared.payloadsWithToolMedia?.[0]).toMatchObject({ isError: true });
+  });
+
+  it("admits only one budget-reserved isolated finalizer", async () => {
+    const attempt = settledFailedAttempt();
+    const input = finalizationInput(attempt);
+    const budget = createAssistantTurnBudget(2);
+    input.terminalBase.runParams.assistantTurnBudget = budget;
+    const finalAssistant = buildEmbeddedRunnerAssistant({
+      content: [{ type: "text", text: "Final answer." }],
+    });
+    backendMocks.runSettledFinalization.mockResolvedValueOnce({
+      outcome: "answered",
+      result: { assistant: finalAssistant, usage: finalAssistant.usage },
+    });
+
+    const first = await prepareTerminalWithSettledTurnFinalization(input);
+    const second = await prepareTerminalWithSettledTurnFinalization(input);
+
+    expect(first.finalizationOutcome).toBe("answered");
+    expect(second.finalizationOutcome).toBe("failed");
+    expect(budget.finalizationStarted).toBe(true);
+    expect(backendMocks.runSettledFinalization).toHaveBeenCalledOnce();
+  });
+
+  it("uses the exhausted budget's reserved finalizer for an unsupported provider", async () => {
+    const attempt = settledFailedAttempt();
+    const input = finalizationInput(attempt);
+    const budget = createAssistantTurnBudget(2);
+    budget.beginAttempt().recordCompletedTurn();
+    input.terminalBase.runParams.assistantTurnBudget = budget;
+    input.terminalBase.activeErrorContext = {
+      provider: "unsupported-provider",
+      model: "unsupported-model",
+    };
+    input.finalization.modelApi = undefined;
+    const finalAssistant = buildEmbeddedRunnerAssistant({
+      content: [{ type: "text", text: "Final answer after the settled tools." }],
+    });
+    backendMocks.runSettledFinalization.mockResolvedValueOnce({
+      outcome: "answered",
+      result: { assistant: finalAssistant, usage: finalAssistant.usage },
+    });
+
+    const result = await prepareTerminalWithSettledTurnFinalization(input);
+
+    expect(result.finalizationOutcome).toBe("answered");
+    expect(budget.finalizationStarted).toBe(true);
+    expect(backendMocks.runSettledFinalization).toHaveBeenCalledOnce();
+  });
+
+  it("keeps unsupported providers blocked without an exhausted trusted budget", async () => {
+    const attempt = settledFailedAttempt();
+    const input = finalizationInput(attempt);
+    input.terminalBase.activeErrorContext = {
+      provider: "unsupported-provider",
+      model: "unsupported-model",
+    };
+    input.finalization.modelApi = undefined;
+
+    const result = await prepareTerminalWithSettledTurnFinalization(input);
+
+    expect(result.finalizationOutcome).toBe("not-attempted");
+    expect(backendMocks.runSettledFinalization).not.toHaveBeenCalled();
+  });
+
+  it("counts usage from a completed finalizer that violates the no-tools contract", async () => {
+    const attempt = settledFailedAttempt();
+    const input = finalizationInput(attempt);
+    const finalizerUsage = { input: 7, output: 3, total: 10 };
+    backendMocks.runSettledFinalization.mockRejectedValueOnce(
+      new InvalidSettledTurnFinalizationError(
+        "Settled-turn finalization returned a tool call",
+        finalizerUsage,
+      ),
+    );
+
+    const result = await prepareTerminalWithSettledTurnFinalization(input);
+
+    expect(result.finalizationOutcome).toBe("failed");
+    expect(result.prepared.agentMeta).toMatchObject({
+      assistantTurns: 2,
+      usage: expect.objectContaining({ input: 7, output: 3, total: 10 }),
+    });
+  });
+
+  it("propagates cancellation during the isolated finalizer without counting a turn", async () => {
+    const attempt = settledFailedAttempt();
+    const input = finalizationInput(attempt);
+    const budget = createAssistantTurnBudget(2);
+    const controller = new AbortController();
+    input.terminalBase.runParams.assistantTurnBudget = budget;
+    input.terminalBase.runParams.abortSignal = controller.signal;
+    backendMocks.runSettledFinalization.mockImplementationOnce(
+      async (preparedAttempt: { abortSignal?: AbortSignal }) =>
+        await new Promise((_, reject) => {
+          preparedAttempt.abortSignal?.addEventListener(
+            "abort",
+            () => {
+              const reason = preparedAttempt.abortSignal?.reason;
+              reject(reason instanceof Error ? reason : new Error("finalizer aborted"));
+            },
+            { once: true },
+          );
+        }),
+    );
+
+    const resultPromise = prepareTerminalWithSettledTurnFinalization(input);
+    controller.abort(new Error("operator cancel"));
+
+    await expect(resultPromise).rejects.toThrow("operator cancel");
+    expect(input.terminalBase.usageAccumulator.assistantTurns).toBe(1);
+    expect(budget.finalizationStarted).toBe(true);
+  });
+
+  it("propagates a finalizer-owned timeout instead of downgrading it to max-turns", async () => {
+    const attempt = settledFailedAttempt();
+    const timeout = new AgentRunTerminalOutcomeError(new Error("finalizer deadline elapsed"), {
+      reason: "hard_timeout",
+      status: "timeout",
+      timeoutPhase: "provider",
+      providerStarted: true,
+    });
+    backendMocks.runSettledFinalization.mockRejectedValueOnce(timeout);
+
+    await expect(
+      prepareTerminalWithSettledTurnFinalization(finalizationInput(attempt)),
+    ).rejects.toBe(timeout);
   });
 });

@@ -204,6 +204,8 @@ describe("agent command registration", () => {
       "--code-mode",
       "code",
       "--local-model-lean",
+      "--max-turns",
+      "35",
       "--fallback",
       "anthropic/claude-sonnet-4-6",
       "--fallback",
@@ -219,6 +221,7 @@ describe("agent command registration", () => {
         model: "openai/gpt-5.6-sol",
         codeMode: "code",
         localModelLean: true,
+        maxTurns: "35",
         fallback: ["anthropic/claude-sonnet-4-6", "google/gemini-3.1-pro-preview"],
         // Stored credentials are the default so exec reaches the same logins as
         // the rest of the CLI; --auth-env-only is the opt-in restriction.

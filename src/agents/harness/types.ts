@@ -100,6 +100,8 @@ type AgentHarnessAttemptParamsBase = Omit<
   | "contextEngineLogicalTurnLease"
   | "onContextEngineTurnCandidate"
   | "trajectoryRecorder"
+  | "assistantTurnBudget"
+  | "assistantTurnAttemptBudget"
 >;
 /**
  * @deprecated Use AgentHarnessAttemptParamsV2. The optional capability keeps

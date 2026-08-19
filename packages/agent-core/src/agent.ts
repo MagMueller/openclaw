@@ -33,6 +33,7 @@ import type {
   BeforeToolCallResult,
   PrepareNextTurnContext,
   QueueMode,
+  ShouldStopAfterTurnContext,
   StreamFn,
   ToolExecutionMode,
 } from "./types.js";
@@ -146,6 +147,13 @@ export interface AgentOptions {
     context: PrepareNextTurnContext,
     signal?: AbortSignal,
   ) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
+  /** Request a graceful stop after the current assistant turn and tool batch fully settle. */
+  shouldStopAfterTurn?: (
+    context: ShouldStopAfterTurnContext,
+    signal?: AbortSignal,
+  ) => boolean | Promise<boolean>;
+  /** Give this hard stop hook priority over already-drained steering. */
+  shouldStopAfterTurnBeforeSteering?: boolean;
   /** Queue drain mode for steering messages applied before the next unstarted tool or model turn. */
   steeringMode?: QueueMode;
   /** Queue drain mode for follow-up messages injected after the agent would otherwise stop. */
@@ -250,6 +258,11 @@ export class Agent {
     context: PrepareNextTurnContext,
     signal?: AbortSignal,
   ) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
+  public shouldStopAfterTurn?: (
+    context: ShouldStopAfterTurnContext,
+    signal?: AbortSignal,
+  ) => boolean | Promise<boolean>;
+  public shouldStopAfterTurnBeforeSteering?: boolean;
   private activeRun?: ActiveRun;
   /** Session identifier forwarded to providers for cache-aware backends. */
   public sessionId?: string;
@@ -277,6 +290,8 @@ export class Agent {
     this.afterToolOutcome = options.afterToolOutcome;
     this.prepareNextTurn = options.prepareNextTurn;
     this.prepareNextTurnWithContext = options.prepareNextTurnWithContext;
+    this.shouldStopAfterTurn = options.shouldStopAfterTurn;
+    this.shouldStopAfterTurnBeforeSteering = options.shouldStopAfterTurnBeforeSteering;
     this.steeringQueue = new PendingMessageQueue(options.steeringMode ?? "one-at-a-time");
     this.followUpQueue = new PendingMessageQueue(options.followUpMode ?? "one-at-a-time");
     this.sessionId = options.sessionId;
@@ -541,6 +556,10 @@ export class Agent {
               return await this.prepareNextTurn?.(this.signal);
             }
           : undefined,
+      shouldStopAfterTurn: this.shouldStopAfterTurn
+        ? async (context) => (await this.shouldStopAfterTurn?.(context, this.signal)) === true
+        : undefined,
+      shouldStopAfterTurnBeforeSteering: this.shouldStopAfterTurnBeforeSteering,
       convertToLlm: this.convertToLlm,
       transformContext: this.transformContext,
       getApiKey: this.getApiKey,

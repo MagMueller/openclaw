@@ -163,6 +163,10 @@ export function resolveSettledTurnFinalizationRequest(input: {
     modelId: input.activeErrorContext.model,
     modelApi: input.modelApi,
     executionContract: input.executionContract,
+    // The budget is host-private and public ingress strips it. Only exhaustion
+    // unlocks the provider-agnostic reserved final turn; every settlement and
+    // side-effect gate above remains mandatory.
+    allowProviderAgnostic: input.runParams.assistantTurnBudget?.remainingOrdinaryTurns === 0,
     allowEmptyStopContinuation: requiresVisibleTerminalReply(input.runParams),
     payloadCount,
     hasTerminalToolPresentation: input.hasTerminalToolPresentation,

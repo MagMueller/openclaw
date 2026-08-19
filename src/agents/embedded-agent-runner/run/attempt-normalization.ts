@@ -105,6 +105,8 @@ export async function normalizeEmbeddedRunAttempt(input: {
   const params = runInput.runParams;
   const runtime = preparedRuntime.snapshot();
   const attempt = normalizeEmbeddedRunAttemptResult(dispatchedAttempt.rawAttempt);
+  const attemptTurnBudget = dispatchedAttempt.preparedAttempt.assistantTurnAttemptBudget;
+  attemptTurnBudget?.reconcileCompletedTurns(attempt.assistantTurns ?? 0);
   await sessionPromptState.waitForCurrentUserMessagePersistence();
   sessionPromptState.suppressNextUserMessagePersistence = sessionPromptState.activePrompt.persisted;
   if (dispatchedAttempt.cancellationRequested) {

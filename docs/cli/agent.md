@@ -61,6 +61,8 @@ openclaw agent exec "Inspect this repository" \
 
 `--code-mode direct` disables Code Mode, `auto` uses model capability metadata, and `code` forces the generic Code Mode surface for tool-capable runs. `--local-model-lean` removes high-latency and channel-dependent tools and enables the bounded Tool Search defaults for the isolated run.
 
+Use `--max-turns <count>` to bound model round trips for this local command. The value must be at least `2`: the built-in OpenClaw loop may use at most `count - 1` ordinary tool-capable turns, then it can use the final slot exactly once to turn an already-settled tool result into a capability-free answer. If the last ordinary turn already contains a visible answer, it returns directly. The cap is shared across internal retries and model fallbacks; an unsettled tool batch, asynchronous work, approval or delivery activity, an empty finalizer, or a finalizer that attempts a tool call fails with `error.kind="max_turns"`. At the hard-stop checkpoint, steering already drained during the settled tool batch is discarded instead of starting another model turn. Plugin-owned and CLI-provider harnesses fail rather than silently ignoring this local-only bound. Gateway ingress and `agent --local` do not accept it.
+
 The timeout defaults to 600 seconds for `agent exec`; this does not change the existing embedded `agent --local` default. A successful run exits `0`, any model or result error exits `1`, and a timeout exits `2`. Failure includes `meta.error`, aborted runs, exhausted model fallbacks, an error stop reason, and any error payload.
 
 Plain output writes only the final assistant text to stdout. Diagnostics use stderr. `--json` reserves stdout for this stable envelope:
@@ -125,6 +127,7 @@ This is evaluation-only evidence, not a CI or release gate. Results do not chang
 - `--auth-env-only`: use only environment provider keys; skips stored credentials, external CLI credentials, and config entirely
 - `--no-auth-env-only`: allow stored and external CLI credentials (default)
 - `--timeout <seconds>`: deadline in seconds (default `600`; `0` disables it)
+- `--max-turns <count>`: local built-in-harness turn cap, including one reserved no-tools final-answer turn (minimum `2`)
 - `--json`: emit the stable JSON envelope
 
 ## Options

@@ -1,5 +1,7 @@
 import { markReplyPayloadForSourceSuppressionDelivery } from "../../../auto-reply/reply-payload.js";
 import { formatErrorMessage } from "../../../infra/errors.js";
+import { findAgentRunTerminalOutcome } from "../../agent-run-terminal-error.js";
+import { InvalidSettledTurnFinalizationError } from "../../harness/settled-turn-finalization-outcome.js";
 import { resolveSettledTurnFinalizationText } from "../../harness/settled-turn-finalization-result.js";
 import type {
   AgentHarness,
@@ -92,9 +94,18 @@ export async function prepareTerminalWithSettledTurnFinalization(input: {
       finalizationOutcome: "not-attempted" as const,
     };
   }
+  const runParams = input.terminalBase.runParams;
+  runParams.abortSignal?.throwIfAborted();
+  if (runParams.assistantTurnBudget && !runParams.assistantTurnBudget.tryBeginFinalization()) {
+    return {
+      ...initial,
+      prepared,
+      lastRunPromptUsage,
+      finalizationOutcome: "failed" as const,
+    };
+  }
   const settledFailureSignal = prepared.failureSignal;
 
-  const runParams = input.terminalBase.runParams;
   const errorContext = input.terminalBase.activeErrorContext;
   log.warn(
     `settled post-tool turn lacked a final answer: runId=${runParams.runId} sessionId=${runParams.sessionId} ` +
@@ -102,7 +113,16 @@ export async function prepareTerminalWithSettledTurnFinalization(input: {
   );
   try {
     const finalization = await runPreparedSettledTurnFinalization({
-      attempt: input.finalization.preparedAttempt,
+      attempt: {
+        ...input.finalization.preparedAttempt,
+        abortSignal:
+          runParams.abortSignal && input.finalization.preparedAttempt.abortSignal
+            ? AbortSignal.any([
+                runParams.abortSignal,
+                input.finalization.preparedAttempt.abortSignal,
+              ])
+            : (runParams.abortSignal ?? input.finalization.preparedAttempt.abortSignal),
+      },
       settledAttempt: initial.attempt,
       harness: input.finalization.harness,
       prompt,
@@ -154,6 +174,26 @@ export async function prepareTerminalWithSettledTurnFinalization(input: {
         finalization.outcome === "empty" ? ("completed-empty" as const) : ("answered" as const),
     };
   } catch (error) {
+    runParams.abortSignal?.throwIfAborted();
+    if (findAgentRunTerminalOutcome(error)) {
+      throw error;
+    }
+    if (error instanceof InvalidSettledTurnFinalizationError) {
+      mergeUsageIntoAccumulator(input.terminalBase.usageAccumulator, error.usage);
+      mergeAttemptRunStatsIntoAccumulator(input.terminalBase.usageAccumulator, {
+        assistantTurns: 1,
+      });
+      lastRunPromptUsage = error.usage ?? lastRunPromptUsage;
+      prepared = prepareEmbeddedRunTerminal({
+        ...input.terminalBase,
+        attempt,
+        currentAttemptCompletedAssistant: initial.currentAttemptCompletedAssistant,
+        sessionIdUsed: initial.sessionIdUsed,
+        sessionFileUsed: initial.sessionFileUsed,
+        lastRunPromptUsage,
+        terminalState: initial.terminalState,
+      });
+    }
     log.warn(
       `settled-turn finalization failed closed: runId=${runParams.runId} sessionId=${runParams.sessionId} ` +
         `provider=${errorContext.provider}/${errorContext.model} error=${formatErrorMessage(error)}`,

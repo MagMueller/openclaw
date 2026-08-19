@@ -7,3 +7,14 @@ export class EmptySettledTurnFinalizationError extends Error {
     this.name = "EmptySettledTurnFinalizationError";
   }
 }
+
+/** A completed finalizer response violated the capability-free result contract. */
+export class InvalidSettledTurnFinalizationError extends Error {
+  constructor(
+    message: string,
+    readonly usage: AgentHarnessSettledTurnFinalizationResult["usage"],
+  ) {
+    super(message);
+    this.name = "InvalidSettledTurnFinalizationError";
+  }
+}

@@ -413,29 +413,40 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
       label: "an approval prompt was already delivered",
       attemptOverrides: { didSendDeterministicApprovalPrompt: true },
     },
-  ])("does not finalize a failed terminal tool when $label (#118274)", ({ attemptOverrides }) => {
-    const toolUseAssistant = makeLastAssistant({
-      stopReason: "toolUse",
-      content: [{ type: "toolCall", id: "tool_1", name: "exec", arguments: {} }],
-    });
-    const instruction = resolveSettledToolTerminalContinuationInstruction(
-      makeSettledContinuationParams({
-        assistantTexts: [],
-        toolMetas: [{ toolName: "exec", isError: true }],
-        itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
-        messagesSnapshot: [
-          toolUseAssistant,
-          { role: "toolResult", toolCallId: "tool_1", toolName: "exec", isError: true },
-        ] as unknown as EmbeddedRunAttemptResult["messagesSnapshot"],
-        lastAssistant: toolUseAssistant,
-        currentAttemptAssistant: toolUseAssistant,
-        lastToolError: { toolName: "exec", error: "post-processing error" },
-        ...attemptOverrides,
-      }),
-    );
+  ])(
+    "does not provider-agnostically finalize a failed terminal tool when $label (#118274)",
+    ({ attemptOverrides }) => {
+      const toolUseAssistant = makeLastAssistant({
+        stopReason: "toolUse",
+        content: [{ type: "toolCall", id: "tool_1", name: "exec", arguments: {} }],
+      });
+      const instruction = resolveSettledToolTerminalContinuationInstruction(
+        makeSettledContinuationParams(
+          {
+            assistantTexts: [],
+            toolMetas: [{ toolName: "exec", isError: true }],
+            itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+            messagesSnapshot: [
+              toolUseAssistant,
+              { role: "toolResult", toolCallId: "tool_1", toolName: "exec", isError: true },
+            ] as unknown as EmbeddedRunAttemptResult["messagesSnapshot"],
+            lastAssistant: toolUseAssistant,
+            currentAttemptAssistant: toolUseAssistant,
+            lastToolError: { toolName: "exec", error: "post-processing error" },
+            ...attemptOverrides,
+          },
+          {
+            provider: "unsupported-provider",
+            modelId: "unsupported-model",
+            modelApi: undefined,
+            allowProviderAgnostic: true,
+          },
+        ),
+      );
 
-    expect(instruction).toBeNull();
-  });
+      expect(instruction).toBeNull();
+    },
+  );
 
   it.each([
     { label: "background trigger", allowEmptyStopContinuation: false },

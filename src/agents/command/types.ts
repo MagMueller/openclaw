@@ -16,6 +16,7 @@ import type {
   UserTurnInput,
   UserTurnTranscriptRecorder,
 } from "../../sessions/user-turn-transcript.types.js";
+import type { AssistantTurnBudget } from "../assistant-turn-budget.js";
 import type { ExecApprovalContinuationPromptRange } from "../bash-tools.exec-approval-output.js";
 import type { ExecElevatedDefaults } from "../bash-tools.exec-types.js";
 import type { BootstrapContextRunKind } from "../bootstrap-mode.js";
@@ -191,6 +192,8 @@ export type AgentCommandOpts = {
   oneShotCliRun?: boolean;
   /** Durable plugin state is unavailable after this run exits. */
   ephemeralRunState?: boolean;
+  /** Trusted local-only cap shared across model and retry attempts. */
+  assistantTurnBudget?: AssistantTurnBudget;
   /** Gateway-owned runs can late-bind plugin subagent and node runtime helpers. */
   allowGatewaySubagentBinding?: boolean;
   /** Opaque foreground fence transferred by Gateway after atomic session admission. */
@@ -243,6 +246,7 @@ export type AgentCommandIngressOpts = Omit<
   | "operationalRunInstance"
   | "cronCreatorAuthorityCapability"
   | "onAdmittedRunContext"
+  | "assistantTurnBudget"
 > & {
   /** Trusted sender identity bit for command/channel-action auth; defaults false for ingress. */
   senderIsOwner?: boolean;
