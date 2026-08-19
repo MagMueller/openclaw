@@ -173,8 +173,9 @@ export async function runNonInteractiveLocalSetup(params: {
   runtime: RuntimeEnv;
   baseConfig: OpenClawConfig;
   baseHash?: string;
+  freshInstall?: boolean;
 }) {
-  const { opts, runtime, baseConfig, baseHash } = params;
+  const { opts, runtime, baseConfig, baseHash, freshInstall } = params;
   const mode = "local" as const;
   const selectedAgentId = resolveOnboardingAgentTarget(baseConfig).agentId;
 
@@ -199,6 +200,7 @@ export async function runNonInteractiveLocalSetup(params: {
   let nextConfig: OpenClawConfig = applyLocalSetupWorkspaceConfig(
     baseConfig,
     requestedWorkspaceDir,
+    { freshInstall },
   );
   if (opts.skipBootstrap) {
     nextConfig = applySkipBootstrapConfig(nextConfig);

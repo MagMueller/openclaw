@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -14,7 +14,10 @@ import {
   reconcileStaleBrowserHarnessCloudLeases,
 } from "./browser-harness-cloud-leases.js";
 import { assertStableHarnessWebSocketEndpoint } from "./browser-harness-endpoint.js";
-import { prepareBrowserHarnessRuntime } from "./browser-harness-transport.js";
+import {
+  captureBrowserHarnessScreenshot,
+  prepareBrowserHarnessRuntime,
+} from "./browser-harness-transport.js";
 
 describe("Browser Harness CDP subprocess boundary", () => {
   afterEach(() => {
@@ -51,6 +54,38 @@ describe("Browser Harness CDP subprocess boundary", () => {
       expect(String(error)).not.toMatch(/relay-secret|query-secret|relay-user/);
     }
   });
+
+  it.runIf(process.platform !== "win32")(
+    "does not spawn Browser Harness for an already-cancelled request",
+    async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-bh-aborted-"));
+      const executable = path.join(root, "fake-browser-harness.sh");
+      const marker = path.join(root, "spawned");
+      await writeFile(executable, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+      const cancellation = new Error("cancelled before browser bootstrap");
+      const controller = new AbortController();
+      controller.abort(cancellation);
+      try {
+        await expect(
+          captureBrowserHarnessScreenshot({
+            runtime: {
+              executable,
+              env: {},
+              name: "cancelled",
+              target: "profile",
+              cleanup: async () => {},
+            },
+            path: path.join(root, "screenshot.png"),
+            fullPage: false,
+            signal: controller.signal,
+          }),
+        ).rejects.toBe(cancellation);
+        await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it.runIf(process.platform !== "win32")(
     "reuses an evaluation-owned daemon and requires every model call to keep using it",

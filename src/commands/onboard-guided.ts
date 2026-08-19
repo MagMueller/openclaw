@@ -17,6 +17,7 @@ import { t } from "../wizard/i18n/index.js";
 import type { WizardPrompter } from "../wizard/prompts.js";
 import { requireRiskAcknowledgement } from "../wizard/setup.shared.js";
 import type { runBrowserHatchHandoff } from "./onboard-browser-handoff.js";
+import { isFreshLocalOnboardingInstall } from "./onboard-config.js";
 import { promptFirstOnboardingAgent, showSessionMigrationWarnings } from "./onboard-first-agent.js";
 import {
   activationLines,
@@ -132,6 +133,7 @@ async function runGuidedOnboardingFlow(
 
   const { readConfigFileSnapshot } = await import("../config/config.js");
   const snapshot = await readConfigFileSnapshot();
+  const freshInstall = isFreshLocalOnboardingInstall(snapshot.exists);
   if (snapshot.exists && !snapshot.valid) {
     const issues =
       snapshot.issues.length > 0
@@ -302,6 +304,7 @@ async function runGuidedOnboardingFlow(
         const claimedSetup = localOnboarding.beginLocalOnboarding({
           configPath: snapshot.path,
           workspace,
+          freshInstall,
           securityAcknowledgedAt: committedSecurityAcknowledgedAt,
           runId,
           ...(replacePreviousSetup
@@ -581,6 +584,9 @@ async function runGuidedOnboardingFlow(
       const applied = await withConsoleSubsystemsSuppressed(() =>
         applySetup({
           workspace,
+          ...((localSetup ? localSetup.freshInstall === true : freshInstall)
+            ? { freshInstall: true }
+            : {}),
           ...(firstAgent ? { firstAgent } : {}),
           ...(allowWorkspaceChange ? { allowWorkspaceChange: true } : {}),
           ...(resumingSetup ? { resume: true } : {}),

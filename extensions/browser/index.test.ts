@@ -320,6 +320,68 @@ describe("browser plugin", () => {
     expect(harness?.selectionPreflight?.()).toBe(false);
   });
 
+  it("keeps native auto mode for a Chrome MCP default profile", () => {
+    const { api, registerTool } = createApi();
+    registerBrowserPlugin(api);
+    const factory = mockCallArg(registerTool);
+    if (typeof factory !== "function") {
+      throw new Error("expected browser plugin to register a tool factory");
+    }
+
+    const tool = factory({
+      config: {
+        browser: {
+          modelEngine: "auto",
+          defaultProfile: "user",
+        },
+      },
+      sessionId: "session-existing-default",
+      workspaceDir: "/workspace",
+      browser: { harnessExec: { execute: vi.fn() } },
+    });
+
+    expect(Array.isArray(tool)).toBe(false);
+    if (!tool || Array.isArray(tool)) {
+      throw new Error("expected the native browser tool");
+    }
+    expect(schemaDeclaresProperty(tool.parameters, "action")).toBe(true);
+    expect(schemaDeclaresProperty(tool.parameters, "code")).toBe(false);
+  });
+
+  it("keeps native auto mode for a hostname-backed CDP default profile", () => {
+    const { api, registerTool } = createApi();
+    registerBrowserPlugin(api);
+    const factory = mockCallArg(registerTool);
+    if (typeof factory !== "function") {
+      throw new Error("expected browser plugin to register a tool factory");
+    }
+
+    const tool = factory({
+      config: {
+        browser: {
+          modelEngine: "auto",
+          defaultProfile: "remote",
+          profiles: {
+            remote: {
+              cdpUrl: "https://remote-browser.example.com",
+              attachOnly: true,
+            },
+          },
+        },
+      },
+      sessionId: "session-hostname-default",
+      workspaceDir: "/workspace",
+      browser: { harnessExec: { execute: vi.fn() } },
+    });
+
+    expect(Array.isArray(tool)).toBe(false);
+    if (!tool || Array.isArray(tool)) {
+      throw new Error("expected the native browser tool");
+    }
+    expect(schemaDeclaresProperty(tool.parameters, "action")).toBe(true);
+    expect(schemaDeclaresProperty(tool.parameters, "code")).toBe(false);
+  });
+
   it.runIf(process.platform !== "win32")(
     "rechecks Browser Harness support when an executable is upgraded in place",
     () => {

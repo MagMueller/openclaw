@@ -7,7 +7,6 @@ import { TextDecoder } from "node:util";
 import { readByteStreamWithLimit } from "@openclaw/media-core/read-byte-stream-with-limit";
 import { parseStrictNonNegativeInteger } from "@openclaw/normalization-core/number-coercion";
 import { findAgentRunTerminalOutcome } from "../agents/agent-run-terminal-error.js";
-import { listAgentEntries } from "../agents/agent-scope-config.js";
 import type { EmbeddedAgentRunMeta } from "../agents/embedded-agent.js";
 import { isExecutionIdentityCollectionEnabled } from "../audit/audit-config.js";
 import { formatCliCommand } from "../cli/command-format.js";
@@ -20,6 +19,7 @@ import type {
 import { formatErrorMessage } from "../infra/errors.js";
 import type { GatewayLockIdentity, GatewayLockOptions } from "../infra/gateway-lock.js";
 import { writeRuntimeJson, writeRuntimeStdout, type RuntimeEnv } from "../runtime.js";
+import { shouldAddDefaultBrowser } from "./browser-default-policy.js";
 
 const AGENT_EXEC_MESSAGE_MAX_BYTES = 4 * 1024 * 1024;
 const AGENT_EXEC_DEFAULT_TIMEOUT_SECONDS = 600;
@@ -360,22 +360,7 @@ function buildExecRunOverlay(params: {
  * notably exec must never downgrade a configured sandbox to `off`.
  */
 function buildExecConfigDefaults(base: OpenClawConfig): OpenClawConfig {
-  // Direct SDK callers shipped before roster materialization may still provide
-  // this raw defaults shape even though the serialized config schema rejects it.
-  const implicitDefaults = base.agents?.defaults;
-  const implicitDefaultTools =
-    implicitDefaults && "tools" in implicitDefaults ? implicitDefaults.tools : undefined;
-  const hasAgentScopedToolPolicy =
-    implicitDefaultTools !== undefined ||
-    listAgentEntries(base).some((entry) => entry.tools !== undefined);
-  const hasTopLevelToolPolicy =
-    base.tools?.profile !== undefined ||
-    base.tools?.allow !== undefined ||
-    base.tools?.alsoAllow !== undefined ||
-    base.tools?.deny !== undefined ||
-    base.tools?.byProvider !== undefined ||
-    base.tools?.toolsBySender !== undefined;
-  const shouldAddBrowser = !hasTopLevelToolPolicy && !hasAgentScopedToolPolicy;
+  const shouldAddBrowser = shouldAddDefaultBrowser(base);
   return {
     env: { shellEnv: { enabled: false } },
     agents: { defaults: { sandbox: { mode: "off" } } },

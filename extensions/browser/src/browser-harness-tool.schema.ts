@@ -3,6 +3,7 @@ import { Type } from "typebox";
 
 const BROWSER_HARNESS_TARGETS = ["chrome", "cloud", "profile"] as const;
 type BrowserHarnessInputTarget = (typeof BROWSER_HARNESS_TARGETS)[number];
+export const DEFAULT_BROWSER_HARNESS_TARGET: BrowserHarnessInputTarget = "profile";
 
 export function describeBrowserHarnessTool(
   options: {
@@ -10,7 +11,7 @@ export function describeBrowserHarnessTool(
     orchestratorBound?: boolean;
   } = {},
 ): string {
-  const defaultTarget = options.defaultTarget ?? "chrome";
+  const defaultTarget = options.defaultTarget ?? DEFAULT_BROWSER_HARNESS_TARGET;
   const defaultTransport = options.orchestratorBound
     ? "This run is already bound to the orchestrator-owned Browser Use Cloud browser. Omit target to reuse it; an explicit target still wins for that call."
     : defaultTarget === "cloud"
@@ -36,7 +37,7 @@ export const BrowserHarnessToolSchema = Type.Object(
     }),
     target: optionalStringEnum(BROWSER_HARNESS_TARGETS, {
       description:
-        'Browser transport for this call. Omission uses a trusted orchestrator binding when present; otherwise it uses browser.harness.defaultTarget (the user\'s Chrome extension when unset). Use "cloud" for Browser Use Cloud or "profile" for an OpenClaw CDP profile.',
+        'Browser transport for this call. Omission uses a trusted orchestrator binding when present; otherwise it uses browser.harness.defaultTarget (browser.defaultProfile when unset). Use "chrome" for the signed-in Chrome extension, "cloud" for Browser Use Cloud, or "profile" for an OpenClaw CDP profile.',
     }),
     profile: Type.Optional(
       Type.String({

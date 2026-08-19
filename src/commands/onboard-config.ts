@@ -8,6 +8,7 @@ import { resolveStateDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { ToolProfileId } from "../config/types.tools.js";
 import { resolveUserPath } from "../utils.js";
+import { shouldAddDefaultBrowser } from "./browser-default-policy.js";
 
 /** Default tool profile selected during local onboarding. */
 const ONBOARDING_DEFAULT_TOOLS_PROFILE: ToolProfileId = "coding";
@@ -21,7 +22,7 @@ function hasExistingAgentState(env: NodeJS.ProcessEnv): boolean {
   const stateDir = resolveStateDir(env);
   const agentsDir = path.join(stateDir, "agents");
   try {
-    if (fs.readdirSync(agentsDir, { withFileTypes: true }).some((entry) => entry.isDirectory())) {
+    if (fs.readdirSync(agentsDir, { withFileTypes: true }).length > 0) {
       return true;
     }
   } catch (error) {
@@ -36,6 +37,14 @@ function hasExistingAgentState(env: NodeJS.ProcessEnv): boolean {
       return (error as NodeJS.ErrnoException).code !== "ENOENT";
     }
   });
+}
+
+/** Decide new-install browser provenance before onboarding creates any agent state. */
+export function isFreshLocalOnboardingInstall(
+  configExists: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return !configExists && !hasExistingAgentState(env);
 }
 
 /** Detects a workspace change that could remap an existing agent fleet. */
@@ -74,6 +83,7 @@ export function applyLocalSetupWorkspaceConfig(
   options: {
     allowWorkspaceChange?: boolean;
     preserveWorkspace?: boolean;
+    freshInstall?: boolean;
     env?: NodeJS.ProcessEnv;
   } = {},
 ): OpenClawConfig {
@@ -83,21 +93,9 @@ export function applyLocalSetupWorkspaceConfig(
     options.env,
   );
   const hasRoster = listAgentEntries(baseConfig).length > 0;
-  // Direct SDK callers shipped before roster materialization may still provide
-  // this raw defaults shape even though the serialized config schema rejects it.
-  const implicitDefaults = baseConfig.agents?.defaults;
-  const implicitDefaultTools =
-    implicitDefaults && "tools" in implicitDefaults ? implicitDefaults.tools : undefined;
-  const hasAgentScopedToolPolicy =
-    implicitDefaultTools !== undefined ||
-    listAgentEntries(baseConfig).some((entry) => entry.tools !== undefined);
-  const hasTopLevelToolPolicy =
-    baseConfig.tools?.profile !== undefined ||
-    baseConfig.tools?.allow !== undefined ||
-    baseConfig.tools?.alsoAllow !== undefined ||
-    baseConfig.tools?.deny !== undefined ||
-    baseConfig.tools?.byProvider !== undefined ||
-    baseConfig.tools?.toolsBySender !== undefined;
+  const shouldAddBrowser = shouldAddDefaultBrowser(baseConfig);
+  const shouldDefaultFreshBrowserToChrome =
+    shouldAddBrowser && options.freshInstall === true && baseConfig.browser === undefined;
   const shouldUpdateWorkspace =
     !options.preserveWorkspace &&
     (options.allowWorkspaceChange || (!hasRoster && !workspaceConflict));
@@ -114,6 +112,11 @@ export function applyLocalSetupWorkspaceConfig(
           },
         }
       : {}),
+    // A genuinely fresh local setup can lead with the user's real Chrome.
+    // Existing state/config keeps the managed-profile default on upgrade.
+    ...(shouldDefaultFreshBrowserToChrome
+      ? { browser: { harness: { defaultTarget: "chrome" } } }
+      : {}),
     gateway: {
       ...baseConfig.gateway,
       mode: "local",
@@ -121,7 +124,7 @@ export function applyLocalSetupWorkspaceConfig(
     tools: {
       ...baseConfig.tools,
       profile: baseConfig.tools?.profile ?? ONBOARDING_DEFAULT_TOOLS_PROFILE,
-      ...(!hasTopLevelToolPolicy && !hasAgentScopedToolPolicy ? { alsoAllow: ["browser"] } : {}),
+      ...(shouldAddBrowser ? { alsoAllow: ["browser"] } : {}),
     },
   };
 }

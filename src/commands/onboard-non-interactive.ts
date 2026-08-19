@@ -17,6 +17,7 @@ import { defaultRuntime } from "../runtime.js";
 import { withOpenClawStateLease } from "../state/openclaw-state-lease.js";
 import { withSetupMigrationTargetLock } from "../wizard/setup.migration-snapshot.js";
 import { createNonInteractiveLoggingPrompter } from "./non-interactive-prompter.js";
+import { isFreshLocalOnboardingInstall } from "./onboard-config.js";
 import { runNonInteractiveLocalSetup } from "./onboard-non-interactive/local.js";
 import { runNonInteractiveRemoteSetup } from "./onboard-non-interactive/remote.js";
 import type { OnboardOptions } from "./onboard-types.js";
@@ -126,7 +127,13 @@ async function runNonInteractiveSetupExclusive(opts: OnboardOptions, runtime: Ru
     return;
   }
 
-  await runNonInteractiveLocalSetup({ opts, runtime, baseConfig, baseHash: snapshot.hash });
+  await runNonInteractiveLocalSetup({
+    opts,
+    runtime,
+    baseConfig,
+    baseHash: snapshot.hash,
+    freshInstall: isFreshLocalOnboardingInstall(snapshot.exists),
+  });
 }
 
 /** Runs non-interactive onboarding in local, remote, or migration-import mode. */

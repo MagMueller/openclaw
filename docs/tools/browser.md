@@ -16,9 +16,12 @@ browser profiles, extension authentication, tool policy, execution placement,
 timeouts, environment filtering, and lifecycle. Unsupported or more restricted
 runs keep the native browser tool automatically.
 
-When Browser Harness is active, model turns default to the built-in `chrome`
-profile: your real signed-in Chrome through the OpenClaw extension. A call can
-select a fresh Browser Use Cloud browser instead, or an existing OpenClaw CDP
+When Browser Harness is active, an unset target preserves
+`browser.defaultProfile` (normally the isolated managed `openclaw` profile).
+Fresh local onboarding opts into the built-in `chrome` extension target;
+existing installations and isolated/configless CLI runs do not silently move
+from their managed browser into personal signed-in Chrome. Any call or operator
+config can explicitly select Chrome, Browser Use Cloud, or another OpenClaw CDP
 profile.
 
 The `openclaw browser ...` operator CLI remains the lower-level control and
@@ -70,7 +73,7 @@ even when Browser Harness is installed; managed profiles and the Chrome
 extension remain available through that native path. To use the Harness engine,
 run the Gateway on macOS or Linux.
 
-Install and pair the Chrome extension for the default signed-in-browser path:
+Install and pair the Chrome extension when you want the signed-in-browser path:
 
 ```bash
 openclaw browser extension install
@@ -88,7 +91,8 @@ An agent browser call has this shape:
 ```json5
 {
   code: "new_tab('https://example.com'); wait_for_load(); print(page_info())",
-  // target: "chrome", // default: signed-in Chrome extension
+  // target: "profile", // default: browser.defaultProfile (normally openclaw)
+  // target: "chrome",  // signed-in Chrome extension
   // target: "cloud",  // fresh Browser Use Cloud browser
   screenshot: true,
 }
@@ -215,9 +219,12 @@ themselves. Removing `plugins.allow` entirely also restores the default.
 
 For model browser calls:
 
-- Default: `target="chrome"`, the signed-in Chrome extension. This works when
-  the extension connects locally or directly outward to the Gateway that runs
-  the Browser Harness process.
+- Default: `target="profile"` with `browser.defaultProfile` (normally the
+  isolated managed `openclaw` profile). Fresh local onboarding selects Chrome
+  in its generated persistent config.
+- `target="chrome"`: the signed-in Chrome extension. This works when the
+  extension connects locally or directly outward to the Gateway that runs the
+  Browser Harness process.
 - `target="cloud"`: one fresh Browser Use Cloud browser for the agent run.
   Gateway runs may provision it directly. A one-shot `openclaw agent exec`
   using the default temporary state database must reuse a caller-provisioned
@@ -247,7 +254,7 @@ Browser settings live in `~/.openclaw/openclaw.json`.
     modelEngine: "auto", // default: prefer Browser Harness when installed, else native
     harness: {
       // executablePath: "/opt/homebrew/bin/browser-harness",
-      defaultTarget: "chrome", // chrome | cloud | profile
+      defaultTarget: "profile", // profile (default) | chrome | cloud
       timeoutSeconds: 300,
     },
     evaluateEnabled: true, // default: true; false keeps the native browser engine

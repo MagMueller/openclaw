@@ -141,6 +141,13 @@ async function runHarnessBootstrap(params: {
   args?: string[];
   signal?: AbortSignal;
 }): Promise<void> {
+  const abortError = () =>
+    params.signal?.reason instanceof Error
+      ? params.signal.reason
+      : new Error("Browser Harness bootstrap aborted", { cause: params.signal?.reason });
+  if (params.signal?.aborted) {
+    throw abortError();
+  }
   await new Promise<void>((resolve, reject) => {
     const child = spawn(params.executable, params.args ?? [], {
       // PATH is trusted control-plane state used only to locate the fixed CLI
@@ -184,6 +191,9 @@ async function runHarnessBootstrap(params: {
     }, BOOTSTRAP_TIMEOUT_MS);
     const abort = () => terminate();
     params.signal?.addEventListener("abort", abort, { once: true });
+    if (params.signal?.aborted) {
+      abort();
+    }
     child.once("error", (error: NodeJS.ErrnoException) => {
       clearTimeout(timeout);
       if (killTimer) {
@@ -199,11 +209,7 @@ async function runHarnessBootstrap(params: {
       }
       params.signal?.removeEventListener("abort", abort);
       if (params.signal?.aborted) {
-        reject(
-          params.signal.reason instanceof Error
-            ? params.signal.reason
-            : new Error("Browser Harness bootstrap aborted", { cause: params.signal.reason }),
-        );
+        reject(abortError());
       } else if (timedOut) {
         reject(new Error("Browser Harness bootstrap timed out"));
       } else if (code === 0) {

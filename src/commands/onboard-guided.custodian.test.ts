@@ -64,6 +64,7 @@ const localOnboarding = vi.hoisted(() => {
       (params: {
         configPath: string;
         workspace: string;
+        freshInstall?: boolean;
         securityAcknowledgedAt: string;
         replace?: boolean;
         expectedRunId?: string;
@@ -79,6 +80,7 @@ const localOnboarding = vi.hoisted(() => {
           runId: params.runId,
           configPath: params.configPath,
           workspace: params.workspace,
+          freshInstall: params.freshInstall === true,
           securityAcknowledgedAt: params.securityAcknowledgedAt,
           startedAtMs: 1,
         };
@@ -365,7 +367,11 @@ describe("runGuidedOnboarding custodian flow", () => {
     );
 
     const pending = localOnboarding.states.get("/tmp/openclaw.json");
-    expect(pending).toMatchObject({ status: "pending", workspace: "/tmp/approved-workspace" });
+    expect(pending).toMatchObject({
+      status: "pending",
+      workspace: "/tmp/approved-workspace",
+      freshInstall: true,
+    });
     expect(first.runSystemAgentChat).toHaveBeenCalledOnce();
 
     readConfigFileSnapshot.mockResolvedValue({
@@ -398,7 +404,11 @@ describe("runGuidedOnboarding custodian flow", () => {
     await runGuidedOnboarding({ acceptRisk: true, tui: true }, makeRuntime(), retry);
 
     expect(retry.applySetup).toHaveBeenCalledWith(
-      expect.objectContaining({ workspace: "/tmp/approved-workspace", resume: true }),
+      expect.objectContaining({
+        workspace: "/tmp/approved-workspace",
+        resume: true,
+        freshInstall: true,
+      }),
     );
     expect(localOnboarding.states.get("/tmp/openclaw.json")).toMatchObject({
       status: "completed",

@@ -16,7 +16,7 @@ export const RUNTIME_FIELD_HELP: Record<string, string> = {
   "browser.harness.executablePath":
     "Browser Harness executable path. Defaults to browser-harness on PATH; use an absolute path for deterministic Gateway service launches.",
   "browser.harness.defaultTarget":
-    'Default browser transport for model calls: "chrome" uses the signed-in OpenClaw extension, "cloud" creates a Browser Use Cloud browser, and "profile" uses browser.defaultProfile.',
+    'Default browser transport for model calls: "profile" (default) preserves browser.defaultProfile, "chrome" uses the signed-in OpenClaw extension, and "cloud" creates a Browser Use Cloud browser.',
   "browser.harness.timeoutSeconds":
     "Maximum wall-clock duration for one model-authored Browser Harness program. The default is 300 seconds and the maximum is 3600 seconds.",
   "browser.cdpUrl":

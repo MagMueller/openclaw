@@ -12,8 +12,11 @@ browser-node deployment), follow that tool's own description.
 
 ## Choose the browser
 
-- Omit `target`, or use `target="chrome"`, for the user's signed-in Chrome
-  through the OpenClaw extension.
+- Omit `target` to use the configured default. An unconfigured or upgraded
+  installation preserves `browser.defaultProfile` (normally the isolated
+  `openclaw` profile); fresh local setup may explicitly default to Chrome.
+- Use `target="chrome"` for the user's signed-in Chrome through the OpenClaw
+  extension.
 - Use `target="cloud"` for a fresh Browser Use Cloud browser. Prefer cloud for
   parallel tasks, isolation, proxies, or bot-sensitive sites.
 - Use `target="profile", profile="openclaw"` for the isolated managed profile,

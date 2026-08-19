@@ -33,6 +33,7 @@ describe("local onboarding state", () => {
       const first = beginLocalOnboarding({
         configPath: state.configPath,
         workspace: state.workspaceDir,
+        freshInstall: true,
         securityAcknowledgedAt: SECURITY_ACKNOWLEDGED_AT,
         runId: "first-run",
         nowMs: 100,
@@ -41,7 +42,12 @@ describe("local onboarding state", () => {
 
       expect(readLocalOnboardingState(state.configPath, database)).toEqual(first);
       expect(readLocalOnboardingState(state.path("other.json"), database)).toBeUndefined();
-      expect(first).toMatchObject({ status: "pending", runId: "first-run", startedAtMs: 100 });
+      expect(first).toMatchObject({
+        status: "pending",
+        runId: "first-run",
+        freshInstall: true,
+        startedAtMs: 100,
+      });
     });
   });
 

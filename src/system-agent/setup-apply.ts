@@ -42,6 +42,8 @@ import { applySystemAgentModelSelection } from "./setup-model-selection.js";
  */
 export type SystemAgentSetupApplyParams = {
   workspace: string;
+  /** Pre-write validation proved there was no config or prior agent state. */
+  freshInstall?: boolean;
   /** Selected first agent when setup starts without a persisted roster. */
   firstAgent?: FirstOnboardingAgent;
   /** Explicit interactive approval to replace an existing fleet workspace root. */
@@ -359,6 +361,7 @@ export async function applySystemAgentSetup(
     let candidate = applyLocalSetupWorkspaceConfig(setupBaseConfig, workspace, {
       allowWorkspaceChange: allowWorkspaceWrite,
       preserveWorkspace,
+      freshInstall: params.freshInstall,
     });
     if (model) {
       const targetAgentId = candidate.agents?.defaults?.systemAgent?.agentId;

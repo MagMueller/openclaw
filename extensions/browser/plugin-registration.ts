@@ -27,10 +27,12 @@ import {
   openBrowserHarnessCloudLeaseStore,
   type BrowserHarnessCloudLeaseStore,
 } from "./src/browser-harness-cloud-leases.js";
+import { hasStableHarnessEndpointHostname } from "./src/browser-harness-endpoint.js";
 import { hasBrowserHarnessOrchestratorBinding } from "./src/browser-harness-orchestrator.js";
 import {
   BrowserHarnessToolOutputSchema,
   BrowserHarnessToolSchema,
+  DEFAULT_BROWSER_HARNESS_TARGET,
   describeBrowserHarnessTool,
 } from "./src/browser-harness-tool.schema.js";
 import {
@@ -223,18 +225,33 @@ function createLazyBrowserHarnessTool(
   const sessionId = ctx.sessionId?.trim();
   const workspaceDir = ctx.workspaceDir?.trim();
   const hasBrowserBinding = Boolean(ctx.toolBindings && Object.hasOwn(ctx.toolBindings, "browser"));
-  const browserConfig = (ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config)?.browser;
+  const runtimeConfig = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
+  const browserConfig = runtimeConfig?.browser;
   const engine = browserConfig?.modelEngine ?? "auto";
   const orchestratorBound = hasBrowserHarnessOrchestratorBinding();
   const harnessDefaultTarget = orchestratorBound
     ? "cloud"
-    : (browserConfig?.harness?.defaultTarget ?? "chrome");
+    : (browserConfig?.harness?.defaultTarget ?? DEFAULT_BROWSER_HARNESS_TARGET);
+  const resolvedBrowserConfig =
+    !orchestratorBound && harnessDefaultTarget === "profile"
+      ? resolveBrowserConfig(browserConfig, runtimeConfig)
+      : undefined;
+  const resolvedDefaultProfile = resolvedBrowserConfig
+    ? resolveProfile(resolvedBrowserConfig, resolvedBrowserConfig.defaultProfile)
+    : undefined;
+  const autoDefaultProfileUnsupported =
+    engine === "auto" &&
+    resolvedDefaultProfile !== undefined &&
+    resolvedDefaultProfile !== null &&
+    (resolvedDefaultProfile.driver === "existing-session" ||
+      !hasStableHarnessEndpointHostname(resolvedDefaultProfile.cdpUrl));
   if (
     !exec ||
     !sessionId ||
     !workspaceDir ||
     ctx.sandboxed ||
     hasBrowserBinding ||
+    autoDefaultProfileUnsupported ||
     engine === "native"
   ) {
     return null;

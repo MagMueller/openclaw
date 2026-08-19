@@ -9,6 +9,7 @@ import { hasBrowserHarnessOrchestratorBinding } from "./browser-harness-orchestr
 import {
   BrowserHarnessToolOutputSchema,
   BrowserHarnessToolSchema,
+  DEFAULT_BROWSER_HARNESS_TARGET,
   describeBrowserHarnessTool,
 } from "./browser-harness-tool.schema.js";
 import {
@@ -165,7 +166,7 @@ export function createBrowserHarnessTool(opts: {
   const orchestratorBound = hasBrowserHarnessOrchestratorBinding();
   const describedDefaultTarget = orchestratorBound
     ? "cloud"
-    : (opts.getBrowserConfig()?.harness?.defaultTarget ?? "chrome");
+    : (opts.getBrowserConfig()?.harness?.defaultTarget ?? DEFAULT_BROWSER_HARNESS_TARGET);
 
   const serialize = <T>(fn: () => Promise<T>): Promise<T> => {
     const result = opQueue.then(fn, fn);
@@ -216,7 +217,9 @@ export function createBrowserHarnessTool(opts: {
         }
         const target = readTarget(
           input.target,
-          orchestratorBound ? "cloud" : (browserConfig?.harness?.defaultTarget ?? "chrome"),
+          orchestratorBound
+            ? "cloud"
+            : (browserConfig?.harness?.defaultTarget ?? DEFAULT_BROWSER_HARNESS_TARGET),
         );
         const profile = typeof input.profile === "string" ? input.profile : undefined;
         const includeScreenshot = input.screenshot === true;

@@ -102,6 +102,26 @@ describe("createBrowserHarnessTool", () => {
     expect(JSON.stringify(result.details)).not.toContain("aggregated");
   });
 
+  it("preserves the managed OpenClaw profile when no Harness target is configured", async () => {
+    const tool = createBrowserHarnessTool({
+      exec: {
+        execute: vi.fn(async () => ({ content: [], details: { status: "completed" } })),
+      },
+      cloudLeaseStore,
+      getBrowserConfig: () => ({}),
+      sessionId: "session-managed-default",
+      workspaceDir: "/workspace",
+    });
+
+    await tool.execute("call-managed-default", { code: "print(page_info())" });
+
+    expect(transportMocks.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ target: "profile", profile: undefined }),
+    );
+    expect(tool.description).toContain("configured OpenClaw CDP profile");
+    expect(tool.description).not.toContain("signed-in Chrome extension");
+  });
+
   it("reuses a trusted orchestrator Cloud binding when target is omitted", async () => {
     vi.stubEnv("BH_ORCHESTRATOR_EXISTING_DAEMON", "1");
     const execute = vi.fn(async () => ({ content: [], details: { status: "completed" } }));

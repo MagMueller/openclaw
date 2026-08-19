@@ -3,6 +3,36 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { buildExecRunConfig } from "./agent-exec.js";
 
 describe("agent exec browser authority", () => {
+  it("keeps the managed-profile browser default for a configless coding run", () => {
+    const config = buildExecRunConfig({
+      base: {},
+      cwd: "/run/here",
+    });
+
+    expect(config.tools?.alsoAllow).toContain("browser");
+    expect(config.browser?.harness?.defaultTarget).toBeUndefined();
+  });
+
+  it("keeps the managed-profile default when a browser config already exists", () => {
+    const config = buildExecRunConfig({
+      base: { browser: { enabled: true } },
+      cwd: "/run/here",
+    });
+
+    expect(config.tools?.alsoAllow).toContain("browser");
+    expect(config.browser?.harness?.defaultTarget).toBeUndefined();
+  });
+
+  it("does not infer configless provenance from an existing non-browser config", () => {
+    const config = buildExecRunConfig({
+      base: { gateway: { port: 19_001 } },
+      cwd: "/run/here",
+    });
+
+    expect(config.tools?.alsoAllow).toContain("browser");
+    expect(config.browser?.harness?.defaultTarget).toBeUndefined();
+  });
+
   it("does not widen an explicitly configured messaging profile", () => {
     const config = buildExecRunConfig({
       base: { tools: { profile: "messaging" } },
@@ -31,6 +61,7 @@ describe("agent exec browser authority", () => {
 
       expect(config.tools?.profile).toBe("coding");
       expect(config.tools?.alsoAllow).toBeUndefined();
+      expect(config.browser?.harness?.defaultTarget).toBeUndefined();
     },
   );
 

@@ -485,8 +485,11 @@ async function runSetupWizardOnce(
     workspaceInput.trim() || onboardHelpers.DEFAULT_WORKSPACE,
   );
 
-  const { applyLocalSetupWorkspaceConfig, applySkipBootstrapConfig } =
-    await loadOnboardConfigModule();
+  const {
+    applyLocalSetupWorkspaceConfig,
+    applySkipBootstrapConfig,
+    isFreshLocalOnboardingInstall,
+  } = await loadOnboardConfigModule();
   const hasAuthoredRoster =
     importSuppliedRoster || hasResolvedRosterBeforeMigrations(currentSetupSnapshot);
   const { workspaceDir, allowWorkspaceChange } = await resolveSetupWorkspaceSelection({
@@ -504,7 +507,10 @@ async function runSetupWizardOnce(
   let nextConfig: OpenClawConfig = applyLocalSetupWorkspaceConfig(
     baseConfig,
     requestedWorkspaceDir,
-    { allowWorkspaceChange: allowWorkspaceChange || !hasAuthoredRoster },
+    {
+      allowWorkspaceChange: allowWorkspaceChange || !hasAuthoredRoster,
+      freshInstall: isFreshLocalOnboardingInstall(snapshot.exists),
+    },
   );
   if (opts.skipBootstrap) {
     nextConfig = applySkipBootstrapConfig(nextConfig);

@@ -67,6 +67,7 @@ const localOnboarding = vi.hoisted(() => {
       (params: {
         configPath: string;
         workspace: string;
+        freshInstall?: boolean;
         securityAcknowledgedAt: string;
         replace?: boolean;
         expectedRunId?: string;
@@ -85,6 +86,7 @@ const localOnboarding = vi.hoisted(() => {
           runId: params.runId ?? `run-${states.size + 1}`,
           configPath: params.configPath,
           workspace: params.workspace,
+          freshInstall: params.freshInstall === true,
           securityAcknowledgedAt: params.securityAcknowledgedAt,
           startedAtMs: 1,
         };
@@ -342,7 +344,7 @@ describe("runGuidedOnboarding", () => {
       }),
     );
     expect(applySetup).toHaveBeenCalledWith(
-      expect.objectContaining({ firstAgent: { name: "robby" } }),
+      expect.objectContaining({ firstAgent: { name: "robby" }, freshInstall: true }),
     );
   });
 

@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import {
   applyLocalSetupWorkspaceConfig,
+  isFreshLocalOnboardingInstall,
   resolveOnboardingWorkspaceConflict,
 } from "./onboard-config.js";
 
@@ -122,12 +123,54 @@ describe("applyLocalSetupWorkspaceConfig", () => {
     expect(result.bindings).toEqual(baseConfig.bindings);
   });
 
-  it("keeps fresh-install workspace writes unchanged", () => {
-    const result = applyLocalSetupWorkspaceConfig({}, "/tmp/new-workspace", {
-      env: { HOME: "/tmp/fresh-home", OPENCLAW_STATE_DIR: "/tmp/fresh-state" },
-    });
+  it("keeps fresh-install workspace writes and opts the new setup into signed-in Chrome", async () => {
+    const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-onboard-fresh-"));
+    try {
+      const env = { HOME: stateDir, OPENCLAW_STATE_DIR: stateDir };
+      const result = applyLocalSetupWorkspaceConfig({}, "/tmp/new-workspace", {
+        env,
+        freshInstall: isFreshLocalOnboardingInstall(false, env),
+      });
 
-    expect(result.agents?.defaults?.workspace).toBe("/tmp/new-workspace");
+      expect(result.agents?.defaults?.workspace).toBe("/tmp/new-workspace");
+      expect(result.browser?.harness?.defaultTarget).toBe("chrome");
+    } finally {
+      await fs.rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps validated freshness after this setup creates its first agent state", async () => {
+    const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-onboard-staged-agent-"));
+    try {
+      const env = { HOME: stateDir, OPENCLAW_STATE_DIR: stateDir };
+      const freshInstall = isFreshLocalOnboardingInstall(false, env);
+      expect(freshInstall).toBe(true);
+      await fs.mkdir(path.join(stateDir, "agents", "main", "sessions"), { recursive: true });
+
+      const result = applyLocalSetupWorkspaceConfig({}, "/tmp/new-workspace", {
+        env,
+        freshInstall,
+      });
+
+      expect(result.browser?.harness?.defaultTarget).toBe("chrome");
+    } finally {
+      await fs.rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not infer freshness from an existing non-browser config", () => {
+    const result = applyLocalSetupWorkspaceConfig(
+      { gateway: { port: 19_001 } },
+      "/tmp/new-workspace",
+      {
+        env: {
+          HOME: "/tmp/openclaw-existing-config-home",
+          OPENCLAW_STATE_DIR: "/tmp/openclaw-existing-config-state",
+        },
+      },
+    );
+
+    expect(result.browser?.harness?.defaultTarget).toBeUndefined();
   });
 
   it("preserves the current workspace when an agent roster exists", () => {
@@ -163,17 +206,21 @@ describe("applyLocalSetupWorkspaceConfig", () => {
     expect(result.agents?.defaults?.workspace).toBeUndefined();
   });
 
-  it("keeps fresh-install workspace writes when only inference state exists on disk", async () => {
+  it("keeps workspace setup but rejects fresh-browser provenance when agent state exists", async () => {
     const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-onboard-state-"));
     try {
       await fs.mkdir(path.join(stateDir, "agents", "main", "sessions"), { recursive: true });
       const env = { HOME: stateDir, OPENCLAW_STATE_DIR: stateDir };
 
+      const freshInstall = isFreshLocalOnboardingInstall(false, env);
+      expect(freshInstall).toBe(false);
       const result = applyLocalSetupWorkspaceConfig({}, "/tmp/requested-workspace", {
         env,
+        freshInstall,
       });
 
       expect(result.agents?.defaults?.workspace).toBe("/tmp/requested-workspace");
+      expect(result.browser?.harness?.defaultTarget).toBeUndefined();
       const rerun = applyLocalSetupWorkspaceConfig(
         { agents: { defaults: { workspace: "/tmp/current-workspace" } } },
         "/tmp/requested-workspace",
@@ -185,19 +232,37 @@ describe("applyLocalSetupWorkspaceConfig", () => {
     }
   });
 
+  it("treats unexpected entries under the agent-state root as preexisting state", async () => {
+    const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-onboard-unknown-state-"));
+    try {
+      const env = { HOME: stateDir, OPENCLAW_STATE_DIR: stateDir };
+      await fs.mkdir(path.join(stateDir, "agents"), { recursive: true });
+      await fs.writeFile(path.join(stateDir, "agents", "unexpected-entry"), "unknown");
+
+      expect(isFreshLocalOnboardingInstall(false, env)).toBe(false);
+    } finally {
+      await fs.rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
   it("fails closed when existing agent state cannot be inspected", () => {
-    const read = vi.spyOn(nodeFs, "readdirSync").mockImplementationOnce(() => {
+    const read = vi.spyOn(nodeFs, "readdirSync").mockImplementation(() => {
       throw Object.assign(new Error("permission denied"), { code: "EACCES" });
     });
     try {
+      const env = { HOME: "/tmp/unreadable-home", OPENCLAW_STATE_DIR: "/tmp/unreadable-state" };
+      const freshInstall = isFreshLocalOnboardingInstall(false, env);
+      expect(freshInstall).toBe(false);
       const result = applyLocalSetupWorkspaceConfig(
         { agents: { defaults: { workspace: "/tmp/current-workspace" } } },
         "/tmp/requested-workspace",
         {
-          env: { HOME: "/tmp/unreadable-home", OPENCLAW_STATE_DIR: "/tmp/unreadable-state" },
+          env,
+          freshInstall,
         },
       );
       expect(result.agents?.defaults?.workspace).toBe("/tmp/current-workspace");
+      expect(result.browser?.harness?.defaultTarget).toBeUndefined();
     } finally {
       read.mockRestore();
     }

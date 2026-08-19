@@ -12,6 +12,8 @@ export type LocalOnboardingState = {
   runId: string;
   configPath: string;
   workspace: string;
+  /** Original snapshot had no config or prior agent state. Absent on legacy receipts. */
+  freshInstall?: boolean;
   securityAcknowledgedAt: string;
   startedAtMs: number;
   completedAtMs?: number;
@@ -68,6 +70,7 @@ export function readLocalOnboardingStateForConfig(
 export function beginLocalOnboarding(params: {
   configPath: string;
   workspace: string;
+  freshInstall?: boolean;
   securityAcknowledgedAt: string;
   replace?: boolean;
   expectedRunId?: string;
@@ -85,6 +88,7 @@ export function beginLocalOnboarding(params: {
     runId: params.runId,
     configPath: path.resolve(params.configPath),
     workspace: path.resolve(params.workspace),
+    freshInstall: params.freshInstall === true,
     securityAcknowledgedAt,
     startedAtMs: params.nowMs ?? Date.now(),
   };

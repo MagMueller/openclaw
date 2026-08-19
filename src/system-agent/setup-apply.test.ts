@@ -346,11 +346,14 @@ describe("applySystemAgentSetup transaction boundaries", () => {
     setSetupCommitState({ agents: { entries: { main: { default: true } } } }, absent);
     mocks.state.commitPreviousHash = null;
 
-    const result = await applySystemAgentSetup(baseParams({ expectedConfigHash: null }));
+    const result = await applySystemAgentSetup(
+      baseParams({ expectedConfigHash: null, freshInstall: true }),
+    );
 
     expect(result.configHashBefore).toBeNull();
     expect(result.bootstrapPending).toBe(true);
     expect(mocks.state.persistedConfig).toMatchObject({
+      browser: { harness: { defaultTarget: "chrome" } },
       agents: {
         defaults: { workspace: "/tmp/openclaw-workspace" },
         entries: { main: { default: true } },
