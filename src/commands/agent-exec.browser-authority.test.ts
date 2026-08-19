@@ -14,6 +14,27 @@ describe("agent exec browser authority", () => {
   });
 
   it.each([
+    { label: "allowlist", tools: { allow: ["read"] } },
+    { label: "denylist", tools: { deny: ["browser"] } },
+    {
+      label: "provider policy",
+      tools: { byProvider: { anthropic: { deny: ["browser"] } } },
+    },
+    {
+      label: "sender policy",
+      tools: { toolsBySender: { "*": { deny: ["browser"] } } },
+    },
+  ] satisfies Array<{ label: string; tools: NonNullable<OpenClawConfig["tools"]> }>)(
+    "does not add browser over an existing top-level $label",
+    ({ tools }) => {
+      const config = buildExecRunConfig({ base: { tools }, cwd: "/run/here" });
+
+      expect(config.tools?.profile).toBe("coding");
+      expect(config.tools?.alsoAllow).toBeUndefined();
+    },
+  );
+
+  it.each([
     {
       label: "legacy SDK agent defaults",
       base: {

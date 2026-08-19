@@ -192,4 +192,65 @@ describe("Browser Harness CDP subprocess boundary", () => {
       }
     },
   );
+
+  it.runIf(process.platform !== "win32")(
+    "retains the cloud lease when timed-out cleanup traps termination and exits successfully",
+    async () => {
+      const testRoot = await mkdtemp(path.join(os.tmpdir(), "openclaw-bh-cleanup-timeout-"));
+      const stateDir = path.join(testRoot, "state");
+      const executable = path.join(testRoot, "fake-browser-harness.sh");
+      await writeFile(
+        executable,
+        [
+          "#!/bin/sh",
+          'code="$(cat)"',
+          'case "$code" in',
+          "  *stop_remote_daemon*)",
+          "    trap 'exit 0' TERM",
+          "    while :; do :; done",
+          "    ;;",
+          "esac",
+          "exit 0",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+      const cloudLeaseStore = openCloudLeaseStore(stateDir);
+      try {
+        const runtime = await prepareBrowserHarnessRuntime({
+          browserConfig: undefined,
+          cloudLeaseStore,
+          target: "cloud",
+          sessionId: "cleanup-timeout-session",
+          workspaceDir: testRoot,
+          executablePath: executable,
+        });
+        const realSetTimeout = globalThis.setTimeout;
+        const timeoutSpy = vi
+          .spyOn(globalThis, "setTimeout")
+          .mockImplementation((callback, delay, ...args) =>
+            realSetTimeout(callback, delay === 90_000 ? 50 : delay, ...args),
+          );
+        try {
+          await expect(runtime.cleanup()).rejects.toThrow("Browser Harness bootstrap timed out");
+        } finally {
+          timeoutSpy.mockRestore();
+        }
+
+        const cleaned: string[] = [];
+        await expect(
+          reconcileStaleBrowserHarnessCloudLeases({
+            store: cloudLeaseStore,
+            cleanup: async (lease) => {
+              cleaned.push(lease.name);
+            },
+          }),
+        ).resolves.toBe(1);
+        expect(cleaned).toEqual([runtime.name]);
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    },
+  );
 });

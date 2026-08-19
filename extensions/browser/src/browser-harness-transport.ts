@@ -177,7 +177,11 @@ async function runHarnessBootstrap(params: {
       signalChild("SIGTERM");
       killTimer ??= setTimeout(() => signalChild("SIGKILL"), BOOTSTRAP_KILL_GRACE_MS);
     };
-    const timeout = setTimeout(terminate, BOOTSTRAP_TIMEOUT_MS);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      terminate();
+    }, BOOTSTRAP_TIMEOUT_MS);
     const abort = () => terminate();
     params.signal?.addEventListener("abort", abort, { once: true });
     child.once("error", (error: NodeJS.ErrnoException) => {
@@ -200,6 +204,8 @@ async function runHarnessBootstrap(params: {
             ? params.signal.reason
             : new Error("Browser Harness bootstrap aborted", { cause: params.signal.reason }),
         );
+      } else if (timedOut) {
+        reject(new Error("Browser Harness bootstrap timed out"));
       } else if (code === 0) {
         resolve();
       } else {

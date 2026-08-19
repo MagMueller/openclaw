@@ -368,10 +368,14 @@ function buildExecConfigDefaults(base: OpenClawConfig): OpenClawConfig {
   const hasAgentScopedToolPolicy =
     implicitDefaultTools !== undefined ||
     listAgentEntries(base).some((entry) => entry.tools !== undefined);
-  const shouldAddBrowser =
-    base.tools?.profile === undefined &&
-    base.tools?.alsoAllow === undefined &&
-    !hasAgentScopedToolPolicy;
+  const hasTopLevelToolPolicy =
+    base.tools?.profile !== undefined ||
+    base.tools?.allow !== undefined ||
+    base.tools?.alsoAllow !== undefined ||
+    base.tools?.deny !== undefined ||
+    base.tools?.byProvider !== undefined ||
+    base.tools?.toolsBySender !== undefined;
+  const shouldAddBrowser = !hasTopLevelToolPolicy && !hasAgentScopedToolPolicy;
   return {
     env: { shellEnv: { enabled: false } },
     agents: { defaults: { sandbox: { mode: "off" } } },
