@@ -38,6 +38,14 @@ export type BrowserExtensionRelayConfig = {
   allowLegacyAuth?: boolean;
 };
 export type BrowserSsrFPolicyConfig = SsrFPolicyConfig;
+export type BrowserHarnessConfig = {
+  /** Browser Harness executable. Default: browser-harness from PATH. */
+  executablePath?: string;
+  /** Default Browser Harness transport. Default: the user's Chrome extension. */
+  defaultTarget?: "chrome" | "cloud" | "profile";
+  /** Maximum wall-clock duration for one model-authored browser program. */
+  timeoutSeconds?: number;
+};
 export type BrowserConfig = {
   /** @deprecated Doctor-only legacy input; canonical schema rejects this field. */
   color?: string;
@@ -46,6 +54,10 @@ export type BrowserConfig = {
   allowSystemProfileImport?: boolean;
   /** If false, disable browser act:evaluate (arbitrary JS). Default: true */
   evaluateEnabled?: boolean;
+  /** Model-facing browser action engine. Default: auto (prefer Browser Harness when installed). */
+  modelEngine?: "auto" | "browser-harness" | "native";
+  /** Browser Harness execution and transport defaults. */
+  harness?: BrowserHarnessConfig;
   /** Base URL of the CDP endpoint (for remote browsers). Default: loopback CDP on the derived port. */
   cdpUrl?: string;
   /** Override the browser executable path (all platforms). */

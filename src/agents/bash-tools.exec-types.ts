@@ -44,6 +44,12 @@ export type ExecToolDefaults = {
   config?: OpenClawConfig;
   /** Host-prepared non-secret environment and store projection exclusions. */
   preparedRunEnvironment?: PreparedGitHubToolEnvironment;
+  /**
+   * Start subprocesses from a minimal host environment instead of inheriting
+   * the Gateway process environment. Reserved for trusted composite tools that
+   * execute model-authored code without exposing ambient provider credentials.
+   */
+  environmentMode?: "inherit" | "minimal";
   autoReviewer?: ExecAutoReviewer;
   agentId?: string;
   backgroundMs?: number;

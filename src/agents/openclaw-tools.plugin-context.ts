@@ -13,6 +13,7 @@ import { resolveAgentWorkspaceDir, resolveSessionAgentIds } from "./agent-scope.
 import type { ConversationRecallContext } from "./conversation-recall.types.js";
 import { modelKey } from "./model-ref-shared.js";
 import type { ToolFsPolicy } from "./tool-fs-policy.js";
+import type { AnyAgentTool } from "./tools/common.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
 /** Options provided by agent runtime callers when invoking OpenClaw plugin tools. */
@@ -46,10 +47,12 @@ export type OpenClawPluginToolOptions = {
   oneShotCliRun?: boolean;
   sandboxBrowserBridgeUrl?: string;
   allowHostBrowserControl?: boolean;
+  browserHarnessExec?: Pick<AnyAgentTool, "execute">;
   sandboxed?: boolean;
   allowGatewaySubagentBinding?: boolean;
   toolBindings?: Readonly<Record<string, unknown>>;
   activeProjectKeys?: readonly string[];
+  registerRunCleanup?: (cleanup: (reason: string) => Promise<void>) => void;
 };
 
 /** Resolves plugin-tool context inputs from runtime options and config state. */
@@ -107,6 +110,7 @@ export function resolveOpenClawPluginToolInputs(params: {
       browser: {
         sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
         allowHostControl: options?.allowHostBrowserControl,
+        harnessExec: options?.browserHarnessExec,
       },
       messageChannel: options?.agentChannel,
       agentAccountId: options?.agentAccountId,
@@ -119,6 +123,7 @@ export function resolveOpenClawPluginToolInputs(params: {
       ),
       sandboxed: options?.sandboxed,
       oneShotCliRun: options?.oneShotCliRun,
+      registerRunCleanup: options?.registerRunCleanup,
     },
     allowGatewaySubagentBinding: options?.allowGatewaySubagentBinding,
   };

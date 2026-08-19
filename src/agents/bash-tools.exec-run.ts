@@ -21,10 +21,7 @@ import {
 import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-policy.js";
 import { logInfo } from "../logger.js";
 import { parseAgentSessionKey, resolveAgentIdFromSessionKey } from "../routing/session-key.js";
-import {
-  isSecretEgressProxyActive,
-  registerSecretEgressProxyRun,
-} from "../secrets/egress-proxy/registry.js";
+import { registerSecretEgressProxyRun } from "../secrets/egress-proxy/registry.js";
 import type { SecretStoreExecEnvironment } from "../secrets/store/secret-store.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.shared.js";
 import { markBackgrounded } from "./bash-process-registry.js";
@@ -37,6 +34,7 @@ import {
   resolveExecPreparedRunEnvironment,
   resolveNotifyOnExitEmptySuccess,
   resolvePreparedExecEnvironment,
+  resolveSecretEgressEnabled,
 } from "./bash-tools.exec-request-preparation.js";
 import {
   DEFAULT_MAX_OUTPUT,
@@ -78,10 +76,8 @@ type GatewayApprovalRevalidator = () => Promise<AgentToolResult<ExecToolDetails>
 export function createExecTool(
   defaults?: ExecToolDefaults,
 ): AgentToolWithMeta<typeof execSchema, ExecToolDetails> {
-  const secretEgressEnabled = isSecretEgressProxyActive();
+  const secretEgressEnabled = resolveSecretEgressEnabled(defaults?.environmentMode);
   const preparedRunEnvironment = resolveExecPreparedRunEnvironment(defaults);
-  // Agent runs own one tool instance, so the store is read on first exec and reused for that run.
-  // A new run constructs a new instance and observes later store mutations.
   let storeEnvPromise: Promise<SecretStoreExecEnvironment>;
   const resolveStoreEnv = () =>
     (storeEnvPromise ??= import("../secrets/store/secret-store.js").then((store) =>
@@ -414,8 +410,7 @@ export function createExecTool(
 
         const resolvedExecEnvState = requestPreparation.getResolvedExecEnvPreparedState(params);
         const storeEnv = await resolveStoreEnv();
-        // The proxy is loopback-owned by the Gateway. Sandbox and node hosts
-        // cannot use its sentinels, so both sides of the contract stay absent.
+        // The Gateway-owned loopback proxy never exposes sentinels to sandbox/node hosts.
         const useSecretEgress = secretEgressEnabled && host === "gateway";
         let secretEgressEnv: Record<string, string> | undefined;
         if (useSecretEgress) {
@@ -439,6 +434,7 @@ export function createExecTool(
           storeSecretEnv: useSecretEgress ? storeEnv.secretSentinels : undefined,
           secretEgressEnv,
           ...preparedRunEnvironment,
+          environmentMode: defaults?.environmentMode,
           warnings,
         });
 

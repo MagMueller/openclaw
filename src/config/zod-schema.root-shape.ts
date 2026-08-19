@@ -147,6 +147,18 @@ export const OpenClawSchemaShape = {
       enabled: z.boolean().optional(),
       allowSystemProfileImport: z.boolean().optional(),
       evaluateEnabled: z.boolean().optional(),
+      modelEngine: z
+        .union([z.literal("auto"), z.literal("browser-harness"), z.literal("native")])
+        .optional(),
+      harness: z
+        .strictObject({
+          executablePath: z.string().optional(),
+          defaultTarget: z
+            .union([z.literal("chrome"), z.literal("cloud"), z.literal("profile")])
+            .optional(),
+          timeoutSeconds: z.number().int().positive().max(3600).optional(),
+        })
+        .optional(),
       cdpUrl: z.string().optional(),
       executablePath: z.string().optional(),
       headless: z.boolean().optional(),

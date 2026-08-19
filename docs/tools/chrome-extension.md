@@ -88,6 +88,29 @@ string.
 
 ## Use it
 
+The default model-facing browser engine is Browser Harness. Browser Harness
+runs beside the OpenClaw Gateway; it does **not** run inside the extension or on
+the laptop merely because the extension is installed. OpenClaw terminates the
+extension's authenticated relay, exposes only the extension-authorized CDP tab
+surface on loopback, and gives that scoped connection to Browser Harness.
+
+```text
+agent Python -> Browser Harness -> OpenClaw loopback relay
+             -> authenticated extension connection -> allowed Chrome tabs
+```
+
+This preserves the extension's useful boundaries: Selected tabs, immediate
+Pause/Allow revocation, incognito/internal-page exclusion, and an outbound
+connection from a remote laptop. The raw relay credential is not put in model
+Python or its environment. Browser Harness still requires ordinary OpenClaw
+`exec` authority because the `code` field is arbitrary Python.
+
+For a laptop paired directly to a remote Gateway, Browser Harness runs on that
+Gateway and controls the laptop through the existing WSS extension tunnel. You
+do not install Browser Harness on the laptop. For a browser-node deployment,
+keep `browser.modelEngine: "native"` for now; running the Python process on the
+node is intentionally not implicit.
+
 Select the built-in `chrome` profile, or make it the default:
 
 ```bash

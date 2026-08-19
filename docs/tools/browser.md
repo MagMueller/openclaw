@@ -7,7 +7,23 @@ read_when:
 title: "Browser (OpenClaw-managed)"
 ---
 
-OpenClaw can run a **dedicated Chrome/Brave/Edge/Chromium profile** that the agent controls. It runs through a small local control service inside the Gateway (loopback only) and is isolated from your personal browser.
+OpenClaw prefers one compact, code-mode `browser` tool backed by
+[Browser Harness](https://github.com/browser-use/browser-harness) when the CLI
+is installed and the run has unrestricted local exec authority. The agent
+writes a Python program that talks directly to Chrome over CDP, filters large
+page results in code, and returns only the useful result. OpenClaw still owns
+browser profiles, extension authentication, tool policy, execution placement,
+timeouts, environment filtering, and lifecycle. Unsupported or more restricted
+runs keep the native browser tool automatically.
+
+When Browser Harness is active, model turns default to the built-in `chrome`
+profile: your real signed-in Chrome through the OpenClaw extension. A call can
+select a fresh Browser Use Cloud browser instead, or an existing OpenClaw CDP
+profile.
+
+The `openclaw browser ...` operator CLI remains the lower-level control and
+diagnostic surface. It can also run a **dedicated Chrome/Brave/Edge/Chromium
+profile** through the Gateway's loopback control service.
 
 - Think of it as a **separate, agent-only browser**. The `openclaw` profile never touches your personal browser profile.
 - The agent opens tabs, reads pages, clicks, and types in this isolated lane.
@@ -15,10 +31,18 @@ OpenClaw can run a **dedicated Chrome/Brave/Edge/Chromium profile** that the age
 
 ## What you get
 
-- A separate browser profile named **openclaw** (orange accent by default).
-- Deterministic tab control (list/open/focus/close).
-- Agent actions (click/type/drag/select), snapshots, screenshots, PDFs.
-- Question answering over readable page text without returning a full snapshot.
+- One model-facing Python/CDP program instead of a long menu of Playwright
+  actions and snapshot references.
+- Access to the real signed-in Chrome through the extension, including Selected
+  tabs and Pause/Allow controls.
+- Fresh Browser Use Cloud browsers for isolation, concurrency, proxies, and
+  remote execution.
+- Existing managed and IP-addressed CDP profiles through `target="profile"`.
+- Optional post-program screenshots for vision verification.
+- A separate operator-managed browser profile named **openclaw** (orange accent
+  by default).
+- Deterministic CLI tab control (list/open/focus/close), screenshots, PDFs, and
+  diagnostics.
 - Playwright-backed profiles save direct attachment navigations under the managed downloads directory and return `{ url, suggestedFilename, path }` metadata after final-URL policy validation.
 - Playwright-backed agent actions return a `downloads` array with the same managed metadata when the action immediately starts one or more downloads.
 - A bundled `browser-automation` skill that teaches agents the snapshot,
@@ -32,6 +56,39 @@ agent automation and verification.
 On macOS, you can explicitly copy cookies from a Chrome-family system profile into a separate managed profile. The managed browser still uses its own user data directory; only the selected cookies are copied, and local storage and IndexedDB stay behind. See [Profiles](#profiles-multi-browser) or the [`openclaw browser` CLI reference](/cli/browser) for import commands and limitations.
 
 ## Quick start
+
+Install the Browser Harness executable once on the Gateway host:
+
+```bash
+uv tool install --python 3.12 browser-harness
+browser-harness --version
+```
+
+Install and pair the Chrome extension for the default signed-in-browser path:
+
+```bash
+openclaw browser extension install
+openclaw browser extension status
+```
+
+For Browser Use Cloud, authenticate once on the Gateway host:
+
+```bash
+browser-harness auth login
+```
+
+An agent browser call has this shape:
+
+```json5
+{
+  code: "new_tab('https://example.com'); wait_for_load(); print(page_info())",
+  // target: "chrome", // default: signed-in Chrome extension
+  // target: "cloud",  // fresh Browser Use Cloud browser
+  screenshot: true,
+}
+```
+
+The operator CLI is still available for profile setup and diagnostics:
 
 ```bash
 openclaw browser --browser-profile openclaw doctor
@@ -88,24 +145,31 @@ For a single agent, use `agents.entries.*.tools.alsoAllow: ["browser"]`.
 `tools.subagents.tools.allow: ["browser"]` alone is not enough because sub-agent
 policy is applied after profile filtering.
 
-The browser plugin ships two levels of agent guidance:
+The model-facing tool has one required field, `code`. Browser Harness helpers
+such as `page_info()`, `new_tab()`, `goto_url()`, `wait_for_load()`, `cdp()`,
+`js()`, `click_at_xy()`, `fill_input()`, `press_key()`, and `switch_tab()` are
+pre-imported. The agent should inspect, act, verify, and filter large CDP or DOM
+results in the same Python call. Set `screenshot: true` when visual verification
+matters.
 
-- The `browser` tool description carries the compact always-on contract: pick
-  the right profile, keep refs on the same tab, use `tabId`/labels for tab
-  targeting, and load the browser skill for multi-step work.
-- The bundled `browser-automation` skill carries the longer operating loop:
-  check status/tabs first, label task tabs, snapshot before acting, resnapshot
-  after UI changes, recover stale refs once, and report login/2FA/captcha or
-  camera/microphone blockers as manual action instead of guessing.
+Browser output is untrusted web content. Login walls, passwords, MFA, consent,
+and ambiguous account choices remain manual boundaries.
 
-Plugin-bundled skills are listed in the agent's available skills when the
-plugin is enabled. The full skill instructions load on demand, so routine
-turns do not pay the full token cost.
+Browser Harness code is arbitrary Python. OpenClaw therefore exposes this
+engine only when the same final tool policy permits both `browser` and `exec`,
+the process runs on the Gateway, a run-cleanup owner exists, and the effective
+exec policy is already `security="full", ask="off"`. Approval-required,
+sandboxed, node-routed, run-bound, or evaluation-disabled turns retain the
+native browser engine. The Harness process receives a minimal environment with
+ambient provider/store credentials removed, fixed workspace and time limits,
+no background execution, and telemetry disabled.
 
-For page text, use a selector-scoped snapshot or `act:evaluate` that returns
-only the relevant text or structured data, then let the active agent model
-reason over that bounded result. Use efficient snapshots for controls and
-action discovery; they intentionally omit most non-interactive prose.
+This is an exec-equivalent power tool, not a browser sandbox. Its Python can
+read host files or make network calls wherever ordinary approved host exec can.
+The extension still limits which Chrome tabs it exposes, but OpenClaw's native
+per-navigation SSRF and snapshot-reference checks do not inspect arbitrary raw
+CDP or Python. Use sandboxing or `modelEngine="native"` when those narrower
+browser-only boundaries are required.
 
 ## Missing browser command or tool
 
@@ -137,16 +201,24 @@ themselves. Removing `plugins.allow` entirely also restores the default.
   desk because it drives tabs through the OpenClaw browser extension instead of
   the remote-debugging port, so there is no "Allow remote debugging?" prompt.
 
-For agent browser tool calls:
+For model browser calls:
 
-- Default: use the isolated `openclaw` browser.
-- Prefer `profile="chrome"` (extension) when existing logged-in sessions matter
-  and the user is **away from the computer** (Telegram, WhatsApp, etc.).
-- Prefer `profile="user"` (Chrome MCP) when existing logged-in sessions matter
-  and the user is **at the computer** to approve the attach prompt.
-- `profile` is the explicit override when you want a specific browser mode.
+- Default: `target="chrome"`, the signed-in Chrome extension. This works when
+  the extension connects locally or directly outward to the Gateway that runs
+  the Browser Harness process.
+- `target="cloud"`: one fresh Browser Use Cloud browser for the agent run.
+- `target="profile", profile="openclaw"`: the isolated OpenClaw-managed browser.
+- `target="profile", profile="remote"`: a configured raw CDP provider whose
+  WebSocket endpoint is already an IP address. Set `modelEngine: "native"` for
+  hostname endpoints so OpenClaw can preserve DNS pinning across the
+  connection.
+- Chrome MCP `existing-session` profiles are not raw CDP and continue to use the
+  native engine.
+- Browser-node proxy deployments currently use `modelEngine: "native"`; the
+  Browser Harness process does not execute on a browser node in this release.
 
-Set `browser.defaultProfile: "openclaw"` if you want managed mode by default.
+`browser.defaultProfile` still controls the operator CLI and is the fallback
+when a model call uses `target="profile"` without `profile`.
 
 ## Configuration
 
@@ -156,7 +228,13 @@ Browser settings live in `~/.openclaw/openclaw.json`.
 {
   browser: {
     enabled: true, // default: true
-    evaluateEnabled: true, // default: true; false disables act:evaluate (arbitrary JS)
+    modelEngine: "auto", // default: prefer Browser Harness when installed, else native
+    harness: {
+      // executablePath: "/opt/homebrew/bin/browser-harness",
+      defaultTarget: "chrome", // chrome | cloud | profile
+      timeoutSeconds: 300,
+    },
+    evaluateEnabled: true, // default: true; false keeps the native browser engine
     ssrfPolicy: {
       // dangerouslyAllowPrivateNetwork: true, // opt in only for trusted private-network access
       // allowedHostnames: ["localhost"],
@@ -644,6 +722,23 @@ Notes:
 
 Key ideas:
 
+- Browser Harness `code` is arbitrary Python, so the engine is selected only
+  after both the `browser` and ordinary `exec` capabilities survive the final
+  OpenClaw policy pass. Denying `exec` removes Browser Harness rather than
+  creating a code-execution bypass under another tool name.
+- The exact Python source is sent through OpenClaw's exec authorization with
+  strict inline-code handling. The Browser Harness executable is never treated
+  as a safe binary that implicitly authorizes future programs.
+- Browser Harness receives a minimal environment. Provider/model/channel
+  secrets, Gateway credentials, and the extension relay credential are not put
+  in model Python's environment.
+- Browser Harness telemetry and local recording are forced off by OpenClaw:
+  `BH_TELEMETRY=0`, `BROWSER_HARNESS_TELEMETRY=0`,
+  `ANONYMIZED_TELEMETRY=0`, and `BH_RECORD=0`. OpenClaw does not silently opt
+  the operator into third-party analytics or page recordings.
+- The extension still enforces its tab allowlist and Pause/Allow revocation.
+  Browser Harness connects behind OpenClaw's authenticated relay rather than
+  replacing that security boundary.
 - Browser control is loopback-only; access flows through the Gateway's auth or node pairing.
 - The standalone loopback browser HTTP API uses **shared-secret auth only**:
   gateway token bearer auth, `x-openclaw-password`, or HTTP Basic auth with the

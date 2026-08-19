@@ -43,6 +43,8 @@ export type OpenClawPluginToolContext = {
   browser?: {
     sandboxBridgeUrl?: string;
     allowHostControl?: boolean;
+    /** Runtime-owned exec instance with the active session's approval policy. */
+    harnessExec?: Pick<AnyAgentTool, "execute">;
   };
   messageChannel?: string;
   agentAccountId?: string;
@@ -69,6 +71,8 @@ export type OpenClawPluginToolContext = {
    * process resources before the command exits.
    */
   oneShotCliRun?: boolean;
+  /** Register cleanup for run-owned plugin processes and remote resources. */
+  registerRunCleanup?: (cleanup: (reason: string) => Promise<void>) => void;
 };
 
 export type OpenClawPluginToolFactory = (

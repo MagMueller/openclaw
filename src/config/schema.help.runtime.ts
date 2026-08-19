@@ -9,6 +9,16 @@ export const RUNTIME_FIELD_HELP: Record<string, string> = {
     "Enables browser capability wiring in the gateway so browser tools and CDP-driven workflows can run. Disable when browser automation is not needed to reduce surface area and startup work.",
   "browser.allowSystemProfileImport":
     "Allows macOS hosts to import cookies from a local Chrome-family system profile into a managed OpenClaw browser profile. Disable this to prevent browser profile cookie import and its macOS Keychain consent prompt.",
+  "browser.modelEngine":
+    'Selects the model-facing browser engine. "auto" (default) prefers Browser Harness when a compatible CLI is installed and otherwise keeps native; "browser-harness" requires it; "native" retains the legacy action tool.',
+  "browser.harness":
+    "Browser Harness executable and transport defaults for model-authored browser programs. OpenClaw forces Browser Harness telemetry and recording off.",
+  "browser.harness.executablePath":
+    "Browser Harness executable path. Defaults to browser-harness on PATH; use an absolute path for deterministic Gateway service launches.",
+  "browser.harness.defaultTarget":
+    'Default browser transport for model calls: "chrome" uses the signed-in OpenClaw extension, "cloud" creates a Browser Use Cloud browser, and "profile" uses browser.defaultProfile.',
+  "browser.harness.timeoutSeconds":
+    "Maximum wall-clock duration for one model-authored Browser Harness program. The default is 300 seconds and the maximum is 3600 seconds.",
   "browser.cdpUrl":
     "CDP/DevTools endpoint URL used to attach to an externally managed browser instance. Use this for centralized browser hosts, tunnels, or existing-session attachment, and keep URL access restricted to trusted network paths.",
   "browser.executablePath":
@@ -42,7 +52,7 @@ export const RUNTIME_FIELD_HELP: Record<string, string> = {
   "browser.profiles.*.attachOnly":
     "Per-profile attach-only override that skips local browser launch and only attaches to an existing CDP endpoint. Useful when one profile is externally managed but others are locally launched.",
   "browser.evaluateEnabled":
-    "Enables browser-side evaluate helpers for runtime script evaluation capabilities where supported. Keep disabled unless your workflows require evaluate semantics beyond snapshots/navigation.",
+    "Enables browser-side evaluate helpers for runtime script evaluation capabilities where supported. Browser Harness requires this capability, so false keeps the native browser engine.",
   "browser.snapshotDefaults":
     "Default snapshot capture configuration used when callers do not provide explicit snapshot options. Tune this for consistent capture behavior across channels and automation paths.",
   "browser.snapshotDefaults.mode":

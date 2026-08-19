@@ -1,8 +1,11 @@
+import { spawnSync } from "node:child_process";
+import { accessSync, constants as fsConstants, realpathSync } from "node:fs";
 /**
  * Browser plugin registration helpers. This file keeps registration lazy while
  * advertising Browser tools, services, node-host commands, and audits.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
+import path from "node:path";
 import type { Duplex } from "node:stream";
 import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
 import type {
@@ -20,6 +23,10 @@ import {
   BROWSER_REQUEST_GATEWAY_METHOD,
   BROWSER_REQUEST_GATEWAY_SCOPE,
 } from "./src/browser-gateway-contract.js";
+import {
+  BrowserHarnessToolOutputSchema,
+  BrowserHarnessToolSchema,
+} from "./src/browser-harness-tool.schema.js";
 import {
   BROWSER_PROXY_COMMAND,
   BROWSER_PROXY_UPLOAD_COMMAND,
@@ -40,7 +47,69 @@ import {
 } from "./src/browser/system-profile-import-state.js";
 
 const EAGER_BROWSER_CONTROL_SERVICE_ENV = "OPENCLAW_EAGER_BROWSER_CONTROL_SERVER";
+const MIN_BROWSER_HARNESS_VERSION = [0, 1, 9] as const;
 const logger = createSubsystemLogger("browser");
+const browserHarnessVersionCache = new Map<string, boolean>();
+
+function resolveExecutablePath(command: string): string | null {
+  const hasPathSeparator = command.includes("/") || command.includes("\\");
+  const baseCandidates = hasPathSeparator
+    ? [path.resolve(command)]
+    : (process.env.PATH ?? "")
+        .split(path.delimiter)
+        .filter(Boolean)
+        .map((entry) => path.join(entry, command));
+  const suffixes =
+    process.platform === "win32"
+      ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean)
+      : [""];
+  for (const candidate of baseCandidates) {
+    for (const suffix of suffixes) {
+      const resolvedCandidate = candidate.endsWith(suffix) ? candidate : `${candidate}${suffix}`;
+      try {
+        accessSync(resolvedCandidate, fsConstants.X_OK);
+        return realpathSync(resolvedCandidate);
+      } catch {
+        // Keep searching PATH/PATHEXT candidates.
+      }
+    }
+  }
+  return null;
+}
+
+function isSupportedBrowserHarness(executable: string): boolean {
+  const cached = browserHarnessVersionCache.get(executable);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const result = spawnSync(executable, ["--version"], {
+    encoding: "utf8",
+    env: {
+      PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+      LANG: process.env.LANG ?? "C.UTF-8",
+    },
+    maxBuffer: 4 * 1024,
+    timeout: 2_000,
+    windowsHide: true,
+  });
+  const version = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.match(
+    /(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\s|$)/,
+  );
+  const major = Number(version?.[1] ?? Number.NaN);
+  const minor = Number(version?.[2] ?? Number.NaN);
+  const patch = Number(version?.[3] ?? Number.NaN);
+  const supported = Boolean(
+    !result.error &&
+    result.status === 0 &&
+    version &&
+    (major > MIN_BROWSER_HARNESS_VERSION[0] ||
+      (major === MIN_BROWSER_HARNESS_VERSION[0] &&
+        (minor > MIN_BROWSER_HARNESS_VERSION[1] ||
+          (minor === MIN_BROWSER_HARNESS_VERSION[1] && patch >= MIN_BROWSER_HARNESS_VERSION[2])))),
+  );
+  browserHarnessVersionCache.set(executable, supported);
+  return supported;
+}
 
 const loadBrowserRegistrationRuntimeModule = createLazyRuntimeModule(
   () => import("./register.runtime.js"),
@@ -127,6 +196,63 @@ function createLazyBrowserTool(
           : { ...opts, toolCapabilities: capabilities },
       );
       return await tool.execute(toolCallId, args, signal, onUpdate);
+    },
+  };
+}
+
+function createLazyBrowserHarnessTool(ctx: OpenClawPluginToolContext): AnyAgentTool | null {
+  const exec = ctx.browser?.harnessExec;
+  const sessionId = ctx.sessionId?.trim();
+  const workspaceDir = ctx.workspaceDir?.trim();
+  const hasBrowserBinding = Boolean(ctx.toolBindings && Object.hasOwn(ctx.toolBindings, "browser"));
+  const browserConfig = (ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config)?.browser;
+  const engine = browserConfig?.modelEngine ?? "auto";
+  const requestedExecutable = browserConfig?.harness?.executablePath?.trim() || "browser-harness";
+  const executable = resolveExecutablePath(requestedExecutable);
+  const supported = executable ? isSupportedBrowserHarness(executable) : false;
+  if (
+    !exec ||
+    !sessionId ||
+    !workspaceDir ||
+    ctx.sandboxed ||
+    hasBrowserBinding ||
+    engine === "native" ||
+    (engine === "auto" && !supported)
+  ) {
+    return null;
+  }
+  let loadedTool: AnyAgentTool | undefined;
+  return {
+    label: "Browser",
+    name: "browser_exec",
+    resultContentSource: "network",
+    description:
+      "Control a full Chrome browser with one synchronous Python program. Browser Harness helpers and raw CDP are pre-imported; there is no Playwright browser/page object. Inspect, act, verify, and filter results in the same call. Defaults to the user's signed-in Chrome extension; target=cloud uses Browser Use Cloud.",
+    parameters: BrowserHarnessToolSchema,
+    outputSchema: BrowserHarnessToolOutputSchema,
+    execute: async (toolCallId, args, signal, onUpdate) => {
+      if (!loadedTool) {
+        const { createBrowserHarnessTool } = await loadBrowserRegistrationRuntimeModule();
+        loadedTool = createBrowserHarnessTool({
+          exec,
+          getBrowserConfig: () =>
+            (ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config)?.browser,
+          sessionId,
+          workspaceDir,
+          allowHostControl: ctx.browser?.allowHostControl,
+          oneShotCliRun: ctx.oneShotCliRun,
+          registerRunCleanup: ctx.registerRunCleanup,
+          ...(executable ? { executablePath: executable } : {}),
+          ...(!supported
+            ? {
+                preflightError: executable
+                  ? `Browser Harness ${MIN_BROWSER_HARNESS_VERSION.join(".")} or newer is required`
+                  : `Browser Harness executable not found: ${JSON.stringify(requestedExecutable)}`,
+              }
+            : {}),
+        });
+      }
+      return await loadedTool.execute(toolCallId, args, signal, onUpdate);
     },
   };
 }
@@ -270,7 +396,9 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
   );
   api.registerTool(((ctx: OpenClawPluginToolContext) => {
     const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
-    return createLazyBrowserTool(createBrowserToolOptions(ctx), config);
+    const nativeTool = createLazyBrowserTool(createBrowserToolOptions(ctx), config);
+    const harnessTool = createLazyBrowserHarnessTool(ctx);
+    return harnessTool ? [nativeTool, harnessTool] : nativeTool;
   }) as OpenClawPluginToolFactory);
   api.registerCli(
     async ({ program }) => {

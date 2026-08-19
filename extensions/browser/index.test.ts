@@ -237,6 +237,106 @@ describe("browser plugin", () => {
     });
   });
 
+  it("offers Browser Harness as a policy candidate only with runtime exec authority", () => {
+    const { api, registerTool } = createApi();
+    registerBrowserPlugin(api);
+    const factory = mockCallArg(registerTool);
+    if (typeof factory !== "function") {
+      throw new Error("expected browser plugin to register a tool factory");
+    }
+
+    const tools = factory({
+      config: { browser: { modelEngine: "browser-harness" } },
+      sessionId: "session-browser-harness",
+      workspaceDir: "/workspace",
+      browser: {
+        allowHostControl: true,
+        harnessExec: { execute: vi.fn() },
+      },
+    });
+
+    expect(Array.isArray(tools) ? tools.map((tool) => tool.name) : []).toEqual([
+      "browser",
+      "browser_exec",
+    ]);
+  });
+
+  it("keeps native browser in auto mode when Browser Harness is unavailable", () => {
+    vi.stubEnv("PATH", "/definitely/missing");
+    const { api, registerTool } = createApi();
+    registerBrowserPlugin(api);
+    const factory = mockCallArg(registerTool);
+    if (typeof factory !== "function") {
+      throw new Error("expected browser plugin to register a tool factory");
+    }
+
+    const tool = factory({
+      config: { browser: { modelEngine: "auto" } },
+      sessionId: "session-native-fallback",
+      workspaceDir: "/workspace",
+      browser: { harnessExec: { execute: vi.fn() } },
+    });
+
+    expect(Array.isArray(tool)).toBe(false);
+    expect(tool?.name).toBe("browser");
+  });
+
+  it("fails loudly for an explicitly required missing Browser Harness", async () => {
+    const { api, registerTool } = createApi();
+    registerBrowserPlugin(api);
+    const factory = mockCallArg(registerTool);
+    if (typeof factory !== "function") {
+      throw new Error("expected browser plugin to register a tool factory");
+    }
+
+    const tools = factory({
+      config: {
+        browser: {
+          modelEngine: "browser-harness",
+          harness: { executablePath: "/definitely/missing/browser-harness" },
+        },
+      },
+      sessionId: "session-required-harness",
+      workspaceDir: "/workspace",
+      browser: { harnessExec: { execute: vi.fn() } },
+    });
+    const harness = Array.isArray(tools)
+      ? tools.find((candidate) => candidate.name === "browser_exec")
+      : undefined;
+
+    await expect(harness?.execute("call-required", { code: "print(page_info())" })).rejects.toThrow(
+      "Browser Harness executable not found",
+    );
+  });
+
+  it("keeps native browser for a run-bound tab", () => {
+    const { api, registerTool } = createApi();
+    registerBrowserPlugin(api);
+    const factory = mockCallArg(registerTool);
+    if (typeof factory !== "function") {
+      throw new Error("expected browser plugin to register a tool factory");
+    }
+
+    const tool = factory({
+      config: { browser: { modelEngine: "browser-harness" } },
+      sessionId: "session-bound",
+      workspaceDir: "/workspace",
+      toolBindings: {
+        browser: {
+          kind: "tab",
+          tabId: 1,
+          target: "host",
+          profile: "chrome",
+          targetId: "owned-tab",
+        },
+      },
+      browser: { harnessExec: { execute: vi.fn() } },
+    });
+
+    expect(Array.isArray(tool)).toBe(false);
+    expect(tool?.name).toBe("browser");
+  });
+
   it("passes runtime context needed for screenshot image understanding", async () => {
     const { api, registerTool } = createApi();
     registerBrowserPlugin(api);

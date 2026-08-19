@@ -35,7 +35,10 @@ openclaw browser --browser-profile openclaw open https://example.com
 openclaw browser --browser-profile openclaw snapshot
 ```
 
-Agents can run the same readiness check with `browser({ action: "doctor" })`.
+The default model-facing Browser Harness tool has a `code` field rather than
+these CLI subcommands. Operators should use `openclaw browser doctor` for
+transport diagnostics; model turns receive the resulting connection error and
+an install or pairing hint.
 
 ## Quick troubleshooting
 

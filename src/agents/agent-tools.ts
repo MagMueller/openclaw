@@ -47,6 +47,7 @@ import type { AuthProfileStore } from "./auth-profiles/types.js";
 import { resolveProcessToolScopeKey } from "./bash-process-scope.js";
 import type { ExecToolDefaults } from "./bash-tools.exec-types.js";
 import type { ProcessToolDefaults } from "./bash-tools.process.js";
+import { selectBrowserModelTool } from "./browser-model-tool-selection.js";
 import { listChannelAgentTools } from "./channel-tools.js";
 import { shouldSuppressManagedWebSearchTool } from "./codex-native-web-search.js";
 import {
@@ -64,7 +65,7 @@ import { bindActiveCronCreatorAuthorityResolver } from "./cron-creator-authority
 import { applyDelegationCapability, type DelegationCapability } from "./delegation-capability.js";
 import { prepareGitHubToolEnvironment } from "./github-tool-identity.js";
 import { resolveImageSanitizationLimits } from "./image-sanitization.js";
-import { resolveExecToolConfig } from "./lazy-exec-tool.js";
+import { createLazyExecTool, resolveExecToolConfig } from "./lazy-exec-tool.js";
 import {
   filterLocalModelLeanTools,
   resolveLocalModelLeanPreserveToolNames,
@@ -568,6 +569,55 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
   const effectiveExecPolicy = applyExecPolicyLayer(execConfig, options?.exec);
   const processToolAvailabilityRef: NonNullable<ExecToolDefaults["processToolAvailabilityRef"]> =
     {};
+  const execToolDefaults: ExecToolDefaults = {
+    ...execDefaults,
+    host: options?.exec?.host ?? execConfig.host,
+    mode: effectiveExecPolicy.mode,
+    security: effectiveExecPolicy.security,
+    ask: effectiveExecPolicy.ask,
+    config: execRuntimeConfig,
+    preparedRunEnvironment,
+    reviewer: options?.exec?.reviewer ?? execConfig.reviewer,
+    trigger: options?.trigger,
+    node: options?.exec?.node ?? execConfig.node,
+    pathPrepend: mergeGatewayAgentCliPath(options?.exec?.pathPrepend ?? execConfig.pathPrepend),
+    safeBins: options?.exec?.safeBins ?? execConfig.safeBins,
+    strictInlineEval: options?.exec?.strictInlineEval ?? execConfig.strictInlineEval,
+    commandHighlighting: options?.exec?.commandHighlighting ?? execConfig.commandHighlighting,
+    safeBinTrustedDirs: options?.exec?.safeBinTrustedDirs ?? execConfig.safeBinTrustedDirs,
+    safeBinProfiles: options?.exec?.safeBinProfiles ?? execConfig.safeBinProfiles,
+    agentId,
+    processToolAvailabilityRef,
+    scopeKey,
+    sessionKey: options?.sessionKey,
+    runId: options?.runId,
+    operationalRunInstance: options?.operationalRunInstance,
+    notifySessionKey: options?.runSessionKey ?? options?.sessionKey,
+    sessionId: options?.sessionId,
+    sessionStore: options?.config?.session?.store,
+    mainKey: options?.config?.session?.mainKey,
+    sessionScope: options?.config?.session?.scope,
+    eventRouting: resolveEventSessionRoutingPolicy({
+      cfg: options?.config,
+      sessionKey: options?.runSessionKey ?? options?.sessionKey,
+      channel: options?.messageProvider,
+      accountId: options?.agentAccountId,
+    }),
+    messageProvider: options?.messageProvider,
+    currentChannelId: options?.currentChannelId,
+    currentThreadTs: options?.currentThreadTs,
+    channelContext: options?.channelContext,
+    accountId: options?.agentAccountId,
+    approvalReviewerDeviceId: options?.approvalReviewerDeviceId,
+    nonInteractiveApproval: options?.swarmCollector,
+    backgroundMs: options?.exec?.backgroundMs ?? execConfig.backgroundMs,
+    timeoutSec: options?.exec?.timeoutSec ?? execConfig.timeoutSec,
+    approvalRunningNoticeMs:
+      options?.exec?.approvalRunningNoticeMs ?? execConfig.approvalRunningNoticeMs,
+    notifyOnExit: options?.exec?.notifyOnExit ?? execConfig.notifyOnExit,
+    notifyOnExitEmptySuccess:
+      options?.exec?.notifyOnExitEmptySuccess ?? execConfig.notifyOnExitEmptySuccess,
+  };
   const coreTools = createCoreCodingTools({
     codingRoot,
     containmentRoot,
@@ -590,62 +640,37 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     },
     applyPatchEnabled,
     applyPatchWorkspaceOnly,
-    execDefaults: {
-      ...execDefaults,
-      host: options?.exec?.host ?? execConfig.host,
-      mode: effectiveExecPolicy.mode,
-      security: effectiveExecPolicy.security,
-      ask: effectiveExecPolicy.ask,
-      config: execRuntimeConfig,
-      preparedRunEnvironment,
-      reviewer: options?.exec?.reviewer ?? execConfig.reviewer,
-      trigger: options?.trigger,
-      node: options?.exec?.node ?? execConfig.node,
-      pathPrepend: mergeGatewayAgentCliPath(options?.exec?.pathPrepend ?? execConfig.pathPrepend),
-      safeBins: options?.exec?.safeBins ?? execConfig.safeBins,
-      strictInlineEval: options?.exec?.strictInlineEval ?? execConfig.strictInlineEval,
-      commandHighlighting: options?.exec?.commandHighlighting ?? execConfig.commandHighlighting,
-      safeBinTrustedDirs: options?.exec?.safeBinTrustedDirs ?? execConfig.safeBinTrustedDirs,
-      safeBinProfiles: options?.exec?.safeBinProfiles ?? execConfig.safeBinProfiles,
-      agentId,
-      processToolAvailabilityRef,
-      scopeKey,
-      sessionKey: options?.sessionKey,
-      runId: options?.runId,
-      operationalRunInstance: options?.operationalRunInstance,
-      // Detached completions return to the live session, not the sandbox policy scope.
-      notifySessionKey: options?.runSessionKey ?? options?.sessionKey,
-      sessionId: options?.sessionId,
-      sessionStore: options?.config?.session?.store,
-      mainKey: options?.config?.session?.mainKey,
-      sessionScope: options?.config?.session?.scope,
-      eventRouting: resolveEventSessionRoutingPolicy({
-        cfg: options?.config,
-        sessionKey: options?.runSessionKey ?? options?.sessionKey,
-        channel: options?.messageProvider,
-        accountId: options?.agentAccountId,
-      }),
-      messageProvider: options?.messageProvider,
-      currentChannelId: options?.currentChannelId,
-      currentThreadTs: options?.currentThreadTs,
-      channelContext: options?.channelContext,
-      accountId: options?.agentAccountId,
-      approvalReviewerDeviceId: options?.approvalReviewerDeviceId,
-      nonInteractiveApproval: options?.swarmCollector,
-      backgroundMs: options?.exec?.backgroundMs ?? execConfig.backgroundMs,
-      timeoutSec: options?.exec?.timeoutSec ?? execConfig.timeoutSec,
-      approvalRunningNoticeMs:
-        options?.exec?.approvalRunningNoticeMs ?? execConfig.approvalRunningNoticeMs,
-      notifyOnExit: options?.exec?.notifyOnExit ?? execConfig.notifyOnExit,
-      notifyOnExitEmptySuccess:
-        options?.exec?.notifyOnExitEmptySuccess ?? execConfig.notifyOnExitEmptySuccess,
-    },
+    execDefaults: execToolDefaults,
     processDefaults: {
       cleanupMs: cleanupMsOverride ?? execConfig.cleanupMs,
       scopeKey,
     },
     recordToolPrepStage: options?.recordToolPrepStage,
   });
+  const configuredExecHost = options?.exec?.host ?? execConfig.host;
+  const browserHarnessExec =
+    includeShellTools &&
+    process.platform !== "win32" &&
+    options?.registerRunCleanup !== undefined &&
+    (configuredExecHost === "auto" || configuredExecHost === "gateway") &&
+    effectiveExecPolicy.security === "full" &&
+    effectiveExecPolicy.ask === "off"
+      ? createLazyExecTool({
+          ...execToolDefaults,
+          host: "gateway",
+          node: undefined,
+          environmentMode: "minimal",
+          preparedRunEnvironment: undefined,
+          operationalRunInstance: undefined,
+          strictInlineEval: true,
+          safeBins: [],
+          safeBinProfiles: {},
+          allowBackground: false,
+          backgroundMs: undefined,
+          notifyOnExit: false,
+          channelContext: undefined,
+        })
+      : undefined;
   const cronCreatorAuthorityResolver = bindActiveCronCreatorAuthorityResolver(options?.runId);
   // A fresh exact-run capability authorizes only automation creation. Keep every
   // other owner-only control-plane tool denied for senderless operator turns.
@@ -768,6 +793,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             ...(options?.systemAgentTool ? { systemAgentTool: options.systemAgentTool } : {}),
             sandboxBrowserBridgeUrl: sandbox?.browser?.bridgeUrl,
             allowHostBrowserControl: sandbox ? sandbox.browserAllowHostControl : true,
+            browserHarnessExec,
             agentSessionKey: options?.sessionKey,
             runId: options?.runId,
             runSessionKey: options?.runSessionKey,
@@ -938,7 +964,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
   });
   // Host-bound ring-zero tools carry their own authority checks. Agent policy
   // must not deadlock setup, but the tools still receive schema/hook wrappers.
-  const authorizedTools = applyDelegationCapability(
+  let authorizedTools = applyDelegationCapability(
     mergeAgentRingZeroTools(ringZeroTools, subagentFiltered),
     options?.delegationCapability,
   ).filter(
@@ -946,6 +972,16 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       !options?.swarmCollector ||
       (tool.name !== "ask_user" && tool.name !== "sessions_send" && tool.name !== "sessions_yield"),
   );
+  authorizedTools = selectBrowserModelTool({
+    tools: authorizedTools,
+    preferHarness:
+      options?.config?.browser?.modelEngine !== "native" &&
+      options?.config?.browser?.evaluateEnabled !== false &&
+      options?.config?.browser?.enabled !== false &&
+      (!options?.config?.gateway?.nodes?.browser ||
+        options.config.gateway.nodes.browser.mode === "off"),
+    sandboxed: Boolean(sandbox),
+  });
   if (
     swarmStructuredOutputTool &&
     !authorizedTools.some((tool) => tool.name === swarmStructuredOutputTool.name)

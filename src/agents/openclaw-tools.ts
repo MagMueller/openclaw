@@ -102,10 +102,10 @@ export function createOpenClawTools(
   options?: {
     sandboxBrowserBridgeUrl?: string;
     allowHostBrowserControl?: boolean;
+    browserHarnessExec?: Pick<AnyAgentTool, "execute">;
     agentSessionKey?: string;
     toolBindings?: Readonly<Record<string, unknown>>;
-    /** Durable store key when it differs from the sandbox/policy session key. */
-    runSessionKey?: string;
+    runSessionKey?: string; // Durable store key when it differs from the policy session key.
     agentChannel?: string;
     runId?: string;
     agentAccountId?: string;
@@ -226,9 +226,9 @@ export function createOpenClawTools(
   } & SpawnedToolContext &
     ModelAwareToolContext,
 ): AnyAgentTool[] {
-  const resolvedConfig = options?.config;
+  const resolvedConfig = options?.config,
+    runtimeSnapshot = getActiveSecretsRuntimeConfigSnapshot();
   const activeProjectKeys = options?.preparedModelRuntime?.activeProjectKeys ?? [];
-  const runtimeSnapshot = getActiveSecretsRuntimeConfigSnapshot();
   const availabilityConfig = selectApplicableRuntimeConfig({
     inputConfig: resolvedConfig,
     runtimeConfig: runtimeSnapshot?.config,
@@ -404,7 +404,6 @@ export function createOpenClawTools(
         senderIsOwner: options?.senderIsOwner,
         conversationReadOrigin: options?.conversationReadOrigin,
       });
-  const heartbeatTool = options?.enableHeartbeatTool ? createHeartbeatResponseTool() : null;
   options?.recordToolPrepStage?.("openclaw-tools:message-tool");
   const nodesToolBase = createNodesTool({
     agentSessionKey: options?.agentSessionKey,
@@ -543,7 +542,7 @@ export function createOpenClawTools(
             presenters: resolveWidgetPresenters().map((registration) => registration.presenter),
           }),
         ]),
-    ...collectPresentOpenClawTools([heartbeatTool]),
+    ...(options?.enableHeartbeatTool ? [createHeartbeatResponseTool()] : []),
     createTtsTool({
       agentChannel: options?.agentChannel,
       config: resolvedConfig,

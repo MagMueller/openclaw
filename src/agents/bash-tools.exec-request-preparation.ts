@@ -16,6 +16,7 @@ import {
 } from "../infra/shell-env.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import type { PluginHookChannelContext } from "../plugins/hook-types.js";
+import { isSecretEgressProxyActive } from "../secrets/egress-proxy/registry.js";
 import { safeJsonStringify } from "../utils/safe-json.js";
 import type { HookContext } from "./agent-tools.before-tool-call.js";
 import { stripMalformedXmlArgValueSuffixFromKeys } from "./agent-tools.params.js";
@@ -73,6 +74,10 @@ const XML_ARG_VALUE_EXEC_PARAM_KEYS = [
   "ask",
   "node",
 ] as const;
+
+export function resolveSecretEgressEnabled(environmentMode?: "inherit" | "minimal"): boolean {
+  return environmentMode !== "minimal" && isSecretEgressProxyActive();
+}
 
 function buildSubprocessChannelContext(
   channelContext: PluginHookChannelContext | undefined,
@@ -373,32 +378,40 @@ export function resolvePreparedExecEnvironment(params: {
   localIdentityEnv?: Readonly<Record<string, string>>;
   managedLocalIdentity?: boolean;
   warnings: string[];
+  environmentMode?: "inherit" | "minimal";
 }): { env: Record<string, string>; requestedEnv?: Record<string, string> } {
-  const inheritedBaseEnv = coerceEnv(process.env);
-  if (params.secretEgressEnv) {
+  const inheritedBaseEnv = params.environmentMode === "minimal" ? {} : coerceEnv(process.env);
+  if (params.secretEgressEnv && params.environmentMode !== "minimal") {
     Object.assign(inheritedBaseEnv, params.secretEgressEnv);
   }
   const channelContextEnv = buildChannelContextEnv(params.channelContext);
   const explicitEnv: Record<string, string> | undefined =
-    params.execParams.env !== undefined ||
-    params.pluginEnv !== undefined ||
-    channelContextEnv !== undefined
-      ? { ...params.execParams.env, ...params.pluginEnv, ...channelContextEnv }
+    params.environmentMode === "minimal"
+      ? params.execParams.env
+      : params.execParams.env !== undefined ||
+          params.pluginEnv !== undefined ||
+          channelContextEnv !== undefined
+        ? { ...params.execParams.env, ...params.pluginEnv, ...channelContextEnv }
+        : undefined;
+  const storeEnvResult =
+    params.storeEnv && params.environmentMode !== "minimal"
+      ? sanitizeHostExecEnvWithDiagnostics({
+          baseEnv: {},
+          overrides: params.storeEnv,
+          blockPathOverrides: true,
+        })
       : undefined;
-  const storeEnvResult = params.storeEnv
-    ? sanitizeHostExecEnvWithDiagnostics({
-        baseEnv: {},
-        overrides: params.storeEnv,
-        blockPathOverrides: true,
-      })
-    : undefined;
   const { [OPENCLAW_CLI_ENV_VAR]: _storeMarker, ...acceptedStoreEnv } = storeEnvResult?.env ?? {};
   let storeEnv = Object.keys(acceptedStoreEnv).length > 0 ? acceptedStoreEnv : undefined;
   const rejectedStoreKeys = new Set([
     ...(storeEnvResult?.rejectedOverrideBlockedKeys ?? []),
     ...(storeEnvResult?.rejectedOverrideInvalidKeys ?? []),
   ]);
-  if (params.storeEnv && Object.hasOwn(params.storeEnv, OPENCLAW_CLI_ENV_VAR)) {
+  if (
+    params.environmentMode !== "minimal" &&
+    params.storeEnv &&
+    Object.hasOwn(params.storeEnv, OPENCLAW_CLI_ENV_VAR)
+  ) {
     rejectedStoreKeys.add(OPENCLAW_CLI_ENV_VAR);
   }
   if (params.host === "sandbox" && storeEnv) {
@@ -506,7 +519,7 @@ export function resolvePreparedExecEnvironment(params: {
       }
     }
   }
-  if (params.storeSecretEnv) {
+  if (params.storeSecretEnv && params.environmentMode !== "minimal") {
     // Secret-kind entries are authenticated ciphertext, not active credentials.
     // Inject them after ordinary env filtering so names such as GH_TOKEN remain usable.
     for (const [key, value] of Object.entries(params.storeSecretEnv)) {
@@ -515,7 +528,7 @@ export function resolvePreparedExecEnvironment(params: {
       }
     }
   }
-  if (params.secretEgressEnv) {
+  if (params.secretEgressEnv && params.environmentMode !== "minimal") {
     Object.assign(env, params.secretEgressEnv);
   }
   const preparedEnv = {
