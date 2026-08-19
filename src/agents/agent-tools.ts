@@ -1000,6 +1000,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       options?.config?.browser?.enabled !== false &&
       (!options?.config?.gateway?.nodes?.browser ||
         options.config.gateway.nodes.browser.mode === "off"),
+    requireHarness: options?.config?.browser?.modelEngine === "browser-harness",
     sandboxed: Boolean(sandbox),
   });
   if (

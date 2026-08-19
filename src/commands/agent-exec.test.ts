@@ -566,7 +566,7 @@ describe("agent exec command composition", () => {
   it("threads --cwd to both workspace and tool cwd", async () => {
     const root = tempDirs.make("openclaw-agent-exec-cwd-");
     const { runtime } = createRuntime();
-    const runAgent = vi.fn(async () => successResult());
+    const runAgent = vi.fn(async (_options: unknown) => successResult());
 
     await agentExecCommand("inspect", { cwd: root }, runtime, { runAgent });
 

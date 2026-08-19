@@ -1,5 +1,13 @@
 import type { AnyAgentTool } from "./tools/common.js";
 
+function selectionPreflightAllows(tool: AnyAgentTool | undefined): boolean {
+  try {
+    return tool?.selectionPreflight?.() ?? true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Select exactly one model-facing browser engine after every ordinary tool
  * policy has run. Browser Harness is exec-equivalent, so it is eligible only
@@ -8,17 +16,20 @@ import type { AnyAgentTool } from "./tools/common.js";
 export function selectBrowserModelTool(params: {
   tools: AnyAgentTool[];
   preferHarness: boolean;
+  requireHarness?: boolean;
   sandboxed: boolean;
 }): AnyAgentTool[] {
   const nativeBrowser = params.tools.find((tool) => tool.name === "browser");
   const harnessBrowser = params.tools.find((tool) => tool.name === "browser_exec");
   const hasExec = params.tools.some((tool) => tool.name === "exec");
-  const useHarness =
+  const policyEligible =
     params.preferHarness &&
     !params.sandboxed &&
     hasExec &&
     Boolean(nativeBrowser) &&
     Boolean(harnessBrowser);
+  const harnessAvailable = policyEligible ? selectionPreflightAllows(harnessBrowser) : false;
+  const useHarness = policyEligible && (harnessAvailable || params.requireHarness === true);
 
   if (!useHarness) {
     return params.tools.filter((tool) => tool !== harnessBrowser);

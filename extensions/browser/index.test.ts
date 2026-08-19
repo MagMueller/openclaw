@@ -272,7 +272,7 @@ describe("browser plugin", () => {
     ]);
   });
 
-  it("keeps native browser in auto mode when Browser Harness is unavailable", () => {
+  it("defers auto-mode Browser Harness availability until final selection", () => {
     vi.stubEnv("PATH", "/definitely/missing");
     const { api, registerTool } = createApi();
     registerBrowserPlugin(api);
@@ -281,15 +281,17 @@ describe("browser plugin", () => {
       throw new Error("expected browser plugin to register a tool factory");
     }
 
-    const tool = factory({
+    const tools = factory({
       config: { browser: { modelEngine: "auto" } },
       sessionId: "session-native-fallback",
       workspaceDir: "/workspace",
       browser: { harnessExec: { execute: vi.fn() } },
     });
 
-    expect(Array.isArray(tool)).toBe(false);
-    expect(tool?.name).toBe("browser");
+    const harness = Array.isArray(tools)
+      ? tools.find((candidate) => candidate.name === "browser_exec")
+      : undefined;
+    expect(harness?.selectionPreflight?.()).toBe(false);
   });
 
   it.runIf(process.platform !== "win32")(
@@ -323,10 +325,67 @@ describe("browser plugin", () => {
           browser: { harnessExec: { execute: vi.fn() } },
         });
 
-        expect(Array.isArray(factory(createContext()))).toBe(false);
+        const oldTools = factory(createContext());
+        const oldHarness = Array.isArray(oldTools)
+          ? oldTools.find((candidate) => candidate.name === "browser_exec")
+          : undefined;
+        expect(oldHarness?.selectionPreflight?.()).toBe(false);
         writeVersion("0.1.10", ": upgraded\n");
         expect(fs.readFileSync(executable, "utf8")).toContain("0.1.10");
-        expect(Array.isArray(factory(createContext()))).toBe(true);
+        const newTools = factory(createContext());
+        const newHarness = Array.isArray(newTools)
+          ? newTools.find((candidate) => candidate.name === "browser_exec")
+          : undefined;
+        expect(newHarness?.selectionPreflight?.()).toBe(true);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "does not invoke the Harness executable while assembling ineligible contexts",
+    () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(process.env.TMPDIR ?? "/tmp", "openclaw-bh-ineligible-"),
+      );
+      const executable = path.join(tempDir, "browser-harness");
+      const marker = path.join(tempDir, "invoked");
+      fs.writeFileSync(
+        executable,
+        `#!/bin/sh\ntouch '${marker}'\nprintf '%s\\n' 'browser-harness 0.1.10'\n`,
+        { mode: 0o755 },
+      );
+      try {
+        const { api, registerTool } = createApi();
+        registerBrowserPlugin(api);
+        const factory = mockCallArg(registerTool);
+        if (typeof factory !== "function") {
+          throw new Error("expected browser plugin to register a tool factory");
+        }
+        const config = {
+          browser: {
+            modelEngine: "browser-harness" as const,
+            harness: { executablePath: executable },
+          },
+        };
+
+        factory({ config, sessionId: "no-exec", workspaceDir: "/workspace" });
+        factory({
+          config,
+          sessionId: "sandboxed",
+          workspaceDir: "/workspace",
+          sandboxed: true,
+          browser: { harnessExec: { execute: vi.fn() } },
+        });
+        factory({
+          config: { browser: { ...config.browser, modelEngine: "native" } },
+          sessionId: "native",
+          workspaceDir: "/workspace",
+          browser: { harnessExec: { execute: vi.fn() } },
+        });
+
+        expect(fs.existsSync(marker)).toBe(false);
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }

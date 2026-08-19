@@ -223,20 +223,37 @@ function createLazyBrowserHarnessTool(
   const hasBrowserBinding = Boolean(ctx.toolBindings && Object.hasOwn(ctx.toolBindings, "browser"));
   const browserConfig = (ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config)?.browser;
   const engine = browserConfig?.modelEngine ?? "auto";
-  const requestedExecutable = browserConfig?.harness?.executablePath?.trim() || "browser-harness";
-  const executable = resolveExecutablePath(requestedExecutable);
-  const supported = executable ? isSupportedBrowserHarness(executable) : false;
   if (
     !exec ||
     !sessionId ||
     !workspaceDir ||
     ctx.sandboxed ||
     hasBrowserBinding ||
-    engine === "native" ||
-    (engine === "auto" && !supported)
+    engine === "native"
   ) {
     return null;
   }
+  const requestedExecutable = browserConfig?.harness?.executablePath?.trim() || "browser-harness";
+  let preflight:
+    | { executable: string | null; supported: boolean; error: string | undefined }
+    | undefined;
+  const resolvePreflight = () => {
+    if (preflight) {
+      return preflight;
+    }
+    const executable = resolveExecutablePath(requestedExecutable);
+    const supported = executable ? isSupportedBrowserHarness(executable) : false;
+    preflight = {
+      executable,
+      supported,
+      error: supported
+        ? undefined
+        : executable
+          ? `Browser Harness ${MIN_BROWSER_HARNESS_VERSION.join(".")} or newer is required`
+          : `Browser Harness executable not found: ${JSON.stringify(requestedExecutable)}`,
+    };
+    return preflight;
+  };
   let loadedTool: AnyAgentTool | undefined;
   return {
     label: "Browser",
@@ -246,8 +263,13 @@ function createLazyBrowserHarnessTool(
       "Control a full Chrome browser with one synchronous Python program. Browser Harness helpers and raw CDP are pre-imported; there is no Playwright browser/page object. Inspect, act, verify, and filter results in the same call. Defaults to the user's signed-in Chrome extension; target=cloud uses Browser Use Cloud.",
     parameters: BrowserHarnessToolSchema,
     outputSchema: BrowserHarnessToolOutputSchema,
+    // The final selector calls this only after browser + exec policy survived.
+    // Keeping the executable probe here also prevents descriptor caching from
+    // moving this run-specific check back ahead of policy.
+    selectionPreflight: () => resolvePreflight().supported,
     execute: async (toolCallId, args, signal, onUpdate) => {
       if (!loadedTool) {
+        const resolved = resolvePreflight();
         const { createBrowserHarnessTool } = await loadBrowserRegistrationRuntimeModule();
         loadedTool = createBrowserHarnessTool({
           exec,
@@ -260,14 +282,8 @@ function createLazyBrowserHarnessTool(
           oneShotCliRun: ctx.oneShotCliRun,
           ephemeralRunState: ctx.ephemeralRunState,
           registerRunCleanup: ctx.registerRunCleanup,
-          ...(executable ? { executablePath: executable } : {}),
-          ...(!supported
-            ? {
-                preflightError: executable
-                  ? `Browser Harness ${MIN_BROWSER_HARNESS_VERSION.join(".")} or newer is required`
-                  : `Browser Harness executable not found: ${JSON.stringify(requestedExecutable)}`,
-              }
-            : {}),
+          ...(resolved.executable ? { executablePath: resolved.executable } : {}),
+          ...(resolved.error ? { preflightError: resolved.error } : {}),
         });
       }
       return await loadedTool.execute(toolCallId, args, signal, onUpdate);

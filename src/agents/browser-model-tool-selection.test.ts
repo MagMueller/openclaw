@@ -34,26 +34,36 @@ describe("selectBrowserModelTool", () => {
       tools: [tool("browser"), tool("browser_exec"), tool("exec")],
       sandboxed: true,
     },
-  ])("keeps native browser when $label", ({ tools, sandboxed }) => {
+  ])("keeps native browser when $label without probing Harness", ({ tools, sandboxed }) => {
     const native = tools[0];
+    const preflight = vi.fn(() => true);
+    const harness = tools.find((candidate) => candidate.name === "browser_exec");
+    if (harness) {
+      harness.selectionPreflight = preflight;
+    }
     const selected = selectBrowserModelTool({ tools, preferHarness: true, sandboxed });
     expect(selected).toContain(native);
     expect(selected.some((candidate) => candidate.name === "browser_exec")).toBe(false);
+    expect(preflight).not.toHaveBeenCalled();
   });
 
   it("honors the native engine override", () => {
     const native = tool("browser");
+    const harness = tool("browser_exec");
+    harness.selectionPreflight = vi.fn(() => true);
     const selected = selectBrowserModelTool({
-      tools: [native, tool("browser_exec"), tool("exec")],
+      tools: [native, harness, tool("exec")],
       preferHarness: false,
       sandboxed: false,
     });
     expect(selected).toContain(native);
     expect(selected.some((candidate) => candidate.name === "browser_exec")).toBe(false);
+    expect(harness.selectionPreflight).not.toHaveBeenCalled();
   });
 
   it("cannot resurrect Browser Harness after browser policy denied the native capability", () => {
     const harness = tool("browser_exec");
+    harness.selectionPreflight = vi.fn(() => true);
     const selected = selectBrowserModelTool({
       tools: [harness, tool("exec")],
       preferHarness: true,
@@ -62,5 +72,57 @@ describe("selectBrowserModelTool", () => {
 
     expect(selected.some((candidate) => candidate.name === "browser")).toBe(false);
     expect(selected).not.toContain(harness);
+    expect(harness.selectionPreflight).not.toHaveBeenCalled();
+  });
+
+  it("keeps native in auto mode when final-policy preflight reports unavailable", () => {
+    const native = tool("browser");
+    const harness = tool("browser_exec");
+    harness.selectionPreflight = vi.fn(() => false);
+
+    const selected = selectBrowserModelTool({
+      tools: [native, harness, tool("exec")],
+      preferHarness: true,
+      sandboxed: false,
+    });
+
+    expect(selected).toContain(native);
+    expect(selected).not.toContain(harness);
+    expect(harness.selectionPreflight).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed to native when a deferred availability check throws", () => {
+    const native = tool("browser");
+    const harness = tool("browser_exec");
+    harness.selectionPreflight = vi.fn(() => {
+      throw new Error("probe failed");
+    });
+
+    const selected = selectBrowserModelTool({
+      tools: [native, harness, tool("exec")],
+      preferHarness: true,
+      sandboxed: false,
+    });
+
+    expect(selected).toContain(native);
+    expect(selected).not.toContain(harness);
+  });
+
+  it("keeps an explicitly required Harness tool so it can report its preflight error", () => {
+    const native = tool("browser");
+    const harness = tool("browser_exec");
+    harness.selectionPreflight = vi.fn(() => false);
+
+    const selected = selectBrowserModelTool({
+      tools: [native, harness, tool("exec")],
+      preferHarness: true,
+      requireHarness: true,
+      sandboxed: false,
+    });
+
+    expect(selected).toContain(harness);
+    expect(selected).not.toContain(native);
+    expect(harness.name).toBe("browser");
+    expect(harness.selectionPreflight).toHaveBeenCalledOnce();
   });
 });

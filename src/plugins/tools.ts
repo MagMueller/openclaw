@@ -1588,7 +1588,7 @@ export function resolvePluginTools(params: {
           toolName: tool.name,
         }),
       });
-      if (manifestPlugin) {
+      if (manifestPlugin && !tool.selectionPreflight) {
         const capturedDescriptors = capturedDescriptorsByPluginId.get(entry.pluginId) ?? [];
         capturedDescriptors.push(
           capturePluginToolDescriptor({

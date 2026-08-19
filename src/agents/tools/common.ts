@@ -60,6 +60,13 @@ export type AnyAgentTool = Omit<AgentTool, "execute"> &
     catalogMode?: "direct-only";
     /** Gateway client capabilities required before this tool can be assembled. */
     requiredClientCaps?: string[];
+    /**
+     * Bounded synchronous availability check run only after ordinary tool
+     * policy retained this tool and its companion capabilities. Tools with a
+     * selection preflight are not descriptor-cached because the callback is
+     * runtime state, not a serializable model-facing descriptor.
+     */
+    selectionPreflight?: () => boolean;
     prepareBeforeToolCallParams?: AgentToolWithMeta<
       TSchema,
       unknown
