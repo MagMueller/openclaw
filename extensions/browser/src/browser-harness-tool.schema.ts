@@ -1,4 +1,7 @@
+import { optionalStringEnum } from "openclaw/plugin-sdk/channel-actions";
 import { Type } from "typebox";
+
+const BROWSER_HARNESS_TARGETS = ["chrome", "cloud", "profile"] as const;
 
 export const BrowserHarnessToolSchema = Type.Object(
   {
@@ -6,12 +9,10 @@ export const BrowserHarnessToolSchema = Type.Object(
       description:
         "Synchronous Python using Browser Harness helpers such as new_tab(), wait_for_load(), page_info(), cdp(), js(), click_at_xy(), fill_input(), and press_key(). There is no Playwright browser or page object and no asyncio setup. Print only the small result needed by the agent.",
     }),
-    target: Type.Optional(
-      Type.Union([Type.Literal("chrome"), Type.Literal("cloud"), Type.Literal("profile")], {
-        description:
-          'Browser transport. Defaults to "chrome" (the user\'s OpenClaw extension); use "cloud" for Browser Use Cloud or "profile" for an OpenClaw CDP profile.',
-      }),
-    ),
+    target: optionalStringEnum(BROWSER_HARNESS_TARGETS, {
+      description:
+        'Browser transport. Defaults to "chrome" (the user\'s OpenClaw extension); use "cloud" for Browser Use Cloud or "profile" for an OpenClaw CDP profile.',
+    }),
     profile: Type.Optional(
       Type.String({
         description: 'OpenClaw profile for target="profile". Omit to use browser.defaultProfile.',

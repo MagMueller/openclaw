@@ -39,10 +39,17 @@ const setupToolMocks = vi.hoisted(() => ({
 vi.mock("./sdk-setup-tools.js", () => setupToolMocks);
 
 import { createBrowserHarnessTool } from "./browser-harness-tool.js";
+import { BrowserHarnessToolSchema } from "./browser-harness-tool.schema.js";
 
 describe("createBrowserHarnessTool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("emits a provider-safe flat target enum", () => {
+    const serialized = JSON.stringify(BrowserHarnessToolSchema);
+    expect(serialized).not.toContain('"anyOf"');
+    expect(serialized).toContain('"enum":["chrome","cloud","profile"]');
   });
 
   it("runs exact model Python through the approved exec broker with no browser credential", async () => {
