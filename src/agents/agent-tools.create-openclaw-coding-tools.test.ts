@@ -435,6 +435,61 @@ describe("createOpenClawCodingTools", () => {
     expect(tool.parameters).toEqual({ type: "object", properties: {} });
   });
 
+  it("runs exec-specific hooks before Browser Harness can spawn Python", async () => {
+    const beforeToolCall = vi.fn(async (event: { toolName?: string }) =>
+      event.toolName === "exec"
+        ? { block: true, blockReason: "exec denied by test policy" }
+        : undefined,
+    );
+    initializeGlobalHookRunner(
+      createMockPluginRegistry([{ hookName: "before_tool_call", handler: beforeToolCall }]),
+    );
+    vi.mocked(createOpenClawTools).mockImplementationOnce((options) => {
+      const execute = vi.fn(async (toolCallId, _args, signal, onUpdate) => {
+        const exec = options?.browserHarnessExec?.execute;
+        if (!exec) {
+          throw new Error("expected Browser Harness exec broker");
+        }
+        return exec(
+          `${toolCallId}:exec`,
+          { command: "printf '%s' 'must-not-run'", host: "gateway" },
+          signal,
+          onUpdate,
+        );
+      });
+      return [
+        stubTool("browser"),
+        {
+          ...stubTool("browser_exec"),
+          parameters: {
+            type: "object" as const,
+            properties: { code: { type: "string" as const } },
+            required: ["code"],
+          },
+          execute,
+        },
+      ] as never;
+    });
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-browser-hook-"));
+    const tools = createOpenClawCodingTools({
+      workspaceDir: root,
+      sessionId: "browser-hook-session",
+      sessionPermissionPolicy: { root, mode: "full" },
+      registerRunCleanup: () => {},
+    });
+
+    const result = await requireToolExecute(requireTool(tools, "browser"))("browser-call", {
+      code: "pass",
+    });
+    expect(result.details).toEqual(
+      expect.objectContaining({
+        status: "blocked",
+        reason: "exec denied by test policy",
+      }),
+    );
+    expect(beforeToolCall.mock.calls.map(([event]) => event.toolName)).toEqual(["browser", "exec"]);
+  });
+
   it("adds Tool Search control tools when explicitly requested", () => {
     const tools = createOpenClawCodingTools({
       includeToolSearchControls: true,
@@ -2078,7 +2133,7 @@ describe("createOpenClawCodingTools", () => {
     expect(names.has("browser")).toBe(true);
   });
 
-  it("keeps browser out of coding-profile subagents unless profile-stage alsoAllow adds it", () => {
+  it("includes browser in the coding profile while later subagent policy can still deny it", () => {
     const baseConfig = {
       browser: { enabled: true },
       plugins: { entries: { browser: { enabled: true } } },
@@ -2089,7 +2144,7 @@ describe("createOpenClawCodingTools", () => {
       config: baseConfig,
     });
     const codingNames = new Set(codingSubagent.map((tool) => tool.name));
-    expect(codingNames.has("browser")).toBe(false);
+    expect(codingNames.has("browser")).toBe(true);
 
     const subagentAllowOnly = createOpenClawCodingTools({
       sessionKey: "agent:main:subagent:test",
@@ -2101,7 +2156,7 @@ describe("createOpenClawCodingTools", () => {
         },
       } as OpenClawConfig,
     });
-    expect(toolNameList(subagentAllowOnly)).not.toContain("browser");
+    expect(toolNameList(subagentAllowOnly)).toContain("browser");
 
     const profileStageAlsoAllow = createOpenClawCodingTools({
       sessionKey: "agent:main:subagent:test",
@@ -2111,6 +2166,18 @@ describe("createOpenClawCodingTools", () => {
       } as OpenClawConfig,
     });
     expect(toolNameList(profileStageAlsoAllow)).toContain("browser");
+
+    const subagentDeny = createOpenClawCodingTools({
+      sessionKey: "agent:main:subagent:test",
+      config: {
+        ...baseConfig,
+        tools: {
+          profile: "coding",
+          subagents: { tools: { deny: ["browser"] } },
+        },
+      } as OpenClawConfig,
+    });
+    expect(toolNameList(subagentDeny)).not.toContain("browser");
   });
 
   it("can keep message available when a cron route needs it under the coding profile", () => {

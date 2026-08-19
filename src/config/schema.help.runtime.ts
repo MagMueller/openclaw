@@ -10,7 +10,7 @@ export const RUNTIME_FIELD_HELP: Record<string, string> = {
   "browser.allowSystemProfileImport":
     "Allows macOS hosts to import cookies from a local Chrome-family system profile into a managed OpenClaw browser profile. Disable this to prevent browser profile cookie import and its macOS Keychain consent prompt.",
   "browser.modelEngine":
-    'Selects the model-facing browser engine. "auto" (default) prefers Browser Harness when a compatible CLI is installed and otherwise keeps native; "browser-harness" requires it; "native" retains the legacy action tool.',
+    'Selects the model-facing browser engine. "auto" (default) prefers Browser Harness 0.1.10+ only when browser and approval-free host exec authority survive final policy, and otherwise keeps native; "browser-harness" requires a compatible executable but never bypasses policy; "native" retains the legacy action tool.',
   "browser.harness":
     "Browser Harness executable and transport defaults for model-authored browser programs. OpenClaw forces Browser Harness telemetry and recording off.",
   "browser.harness.executablePath":

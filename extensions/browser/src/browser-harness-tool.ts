@@ -213,13 +213,17 @@ export function createBrowserHarnessTool(opts: {
           registeredCleanup = true;
           opts.registerRunCleanup?.(async () => await cleanup());
         }
+        const activeRuntime = runtime;
+        if (!activeRuntime) {
+          throw new Error("Browser Harness runtime preparation did not produce a runtime");
+        }
 
         try {
           const rawResult = await opts.exec.execute(
             `${toolCallId}:browser-harness`,
             {
-              command: createInlineHarnessCommand(runtime.executable, code),
-              env: runtime.env,
+              command: createInlineHarnessCommand(activeRuntime.executable, code),
+              env: activeRuntime.env,
               host: "gateway",
               workdir: opts.workspaceDir,
               timeoutSeconds,
@@ -239,7 +243,7 @@ export function createBrowserHarnessTool(opts: {
               path: screenshotPath,
               write: async (safePath) =>
                 await captureBrowserHarnessScreenshot({
-                  runtime,
+                  runtime: activeRuntime,
                   path: safePath,
                   fullPage,
                   signal,

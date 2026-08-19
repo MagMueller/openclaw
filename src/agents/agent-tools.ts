@@ -47,6 +47,7 @@ import type { AuthProfileStore } from "./auth-profiles/types.js";
 import { resolveProcessToolScopeKey } from "./bash-process-scope.js";
 import type { ExecToolDefaults } from "./bash-tools.exec-types.js";
 import type { ProcessToolDefaults } from "./bash-tools.process.js";
+import { hasApprovalFreeBrowserHarnessExecAuthority } from "./browser-harness-exec-authority.js";
 import { selectBrowserModelTool } from "./browser-model-tool-selection.js";
 import { listChannelAgentTools } from "./channel-tools.js";
 import { shouldSuppressManagedWebSearchTool } from "./codex-native-web-search.js";
@@ -649,13 +650,20 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     recordToolPrepStage: options?.recordToolPrepStage,
   });
   const configuredExecHost = options?.exec?.host ?? execConfig.host;
-  const browserHarnessExec =
+  const browserHarnessExecSource =
     includeShellTools &&
     process.platform !== "win32" &&
     options?.registerRunCleanup !== undefined &&
-    (configuredExecHost === "auto" || configuredExecHost === "gateway") &&
-    effectiveExecPolicy.security === "full" &&
-    effectiveExecPolicy.ask === "off"
+    (configuredExecHost === undefined ||
+      configuredExecHost === "auto" ||
+      configuredExecHost === "gateway") &&
+    hasApprovalFreeBrowserHarnessExecAuthority({
+      agentId,
+      mode: effectiveExecPolicy.mode,
+      security: effectiveExecPolicy.security,
+      ask: effectiveExecPolicy.ask,
+      bypassHostApprovalFloors: sessionCoreToolPolicy?.bypassHostApprovalFloors,
+    })
       ? createLazyExecTool({
           ...execToolDefaults,
           host: "gateway",
@@ -672,6 +680,12 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
           channelContext: undefined,
         })
       : undefined;
+  // Plugin resolution happens before the final hook context exists. Keep a
+  // stable proxy reference, then replace its execute function with the
+  // separately hook-wrapped exec boundary before tools are returned.
+  const browserHarnessExec = browserHarnessExecSource
+    ? { execute: browserHarnessExecSource.execute }
+    : undefined;
   const cronCreatorAuthorityResolver = bindActiveCronCreatorAuthorityResolver(options?.runId);
   // A fresh exact-run capability authorizes only automation creation. Keep every
   // other owner-only control-plane tool denied for senderless operator turns.
@@ -1036,6 +1050,26 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     onToolOutcome: options?.onToolOutcome,
     allocateToolOutcomeOrdinal: options?.allocateToolOutcomeOrdinal,
   };
+  if (browserHarnessExec && browserHarnessExecSource) {
+    const [authorizedExec] = finalizeAgentTools({
+      tools: [browserHarnessExecSource],
+      modelProvider: options?.modelProvider,
+      modelId: options?.modelId,
+      modelCompat: options?.modelCompat,
+      hookContext,
+      emitBeforeToolCallDiagnostics: options?.emitBeforeToolCallDiagnostics,
+      ...(options?.swarmCollector ? { approvalMode: "deny" as const } : {}),
+      abortSignal: options?.abortSignal,
+      agentId,
+    });
+    if (authorizedExec) {
+      browserHarnessExec.execute = authorizedExec.execute;
+    } else {
+      browserHarnessExec.execute = async () => {
+        throw new Error("Browser Harness exec authorization was not available");
+      };
+    }
+  }
   // NOTE: Keep canonical (lowercase) tool names here. Provider transports remap on the wire.
   return finalizeAgentTools({
     tools: authorizedTools,

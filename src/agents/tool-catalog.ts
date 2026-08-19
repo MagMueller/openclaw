@@ -283,7 +283,7 @@ const CORE_TOOL_DEFINITIONS: CoreToolDefinition[] = [
     label: "browser",
     description: "Control web browser",
     sectionId: "ui",
-    profiles: [],
+    profiles: ["coding"],
     includeInOpenClawGroup: true,
   },
   {

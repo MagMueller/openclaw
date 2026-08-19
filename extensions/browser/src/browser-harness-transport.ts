@@ -22,7 +22,7 @@ const BOOTSTRAP_KILL_GRACE_MS = 2_000;
 const MAX_BOOTSTRAP_OUTPUT_BYTES = 16 * 1024;
 const INSTALL_HINT =
   "Browser Harness is not installed. Run: uv tool install --python 3.12 browser-harness";
-const EXISTING_DAEMON_ENV = "OPENCLAW_BROWSER_HARNESS_EXISTING_DAEMON";
+const EXISTING_DAEMON_ENV = "BH_ORCHESTRATOR_EXISTING_DAEMON";
 const DAEMON_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 export type BrowserHarnessTarget = "chrome" | "cloud" | "profile";
@@ -284,7 +284,7 @@ export async function prepareBrowserHarnessRuntime(params: {
       if (reuseExistingDaemon) {
         await runHarnessBootstrap({
           executable,
-          env: publicEnv,
+          env: bootstrapEnv,
           code: "print(page_info())\n",
           signal: params.signal,
         });
@@ -332,18 +332,36 @@ export async function prepareBrowserHarnessRuntime(params: {
         signal: params.signal,
       });
     }
-    // Browser Harness v0.1.9 logs the initial CDP WebSocket URL. Truncate that
+    // Older Browser Harness daemons logged the initial CDP WebSocket URL. Truncate that
     // bootstrap-only line before model Python can read the isolated log.
     await writeFile(path.join(tmpDir, "bu.log"), "", { mode: 0o600 });
+    // Every later model/screenshot call must reuse the exact scoped daemon.
+    // Never let Browser Harness recover by discovering a different local Chrome.
+    publicEnv.BH_REQUIRE_EXISTING_DAEMON = "1";
   } catch (error) {
+    let cleanupError: unknown;
     if (!reuseExistingDaemon) {
-      await runHarnessBootstrap({
-        executable,
-        env: publicEnv,
-        ...(params.target === "cloud"
-          ? { code: "stop_remote_daemon(NAME)\n" }
-          : { args: ["--reload"] }),
-      }).catch(() => undefined);
+      try {
+        await runHarnessBootstrap({
+          executable,
+          env: publicEnv,
+          ...(params.target === "cloud"
+            ? { code: "stop_remote_daemon(NAME)\n" }
+            : { args: ["--reload"] }),
+        });
+      } catch (stopError) {
+        cleanupError = stopError;
+      }
+    }
+    if (cleanupError) {
+      // Keep the runtime/auth handle so an operator or retry can stop the
+      // resource. Deleting it here would turn a cleanup failure into an orphan.
+      const preparationError = new Error(
+        "Browser Harness preparation failed and cleanup did not complete; runtime state was preserved for retry",
+        { cause: error },
+      );
+      Object.defineProperty(preparationError, "cleanupError", { value: cleanupError });
+      throw preparationError;
     }
     await rm(root, { recursive: true, force: true }).catch(() => undefined);
     throw error;

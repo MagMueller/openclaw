@@ -47,7 +47,7 @@ import {
 } from "./src/browser/system-profile-import-state.js";
 
 const EAGER_BROWSER_CONTROL_SERVICE_ENV = "OPENCLAW_EAGER_BROWSER_CONTROL_SERVER";
-const MIN_BROWSER_HARNESS_VERSION = [0, 1, 9] as const;
+const MIN_BROWSER_HARNESS_VERSION = [0, 1, 10] as const;
 const logger = createSubsystemLogger("browser");
 const browserHarnessVersionCache = new Map<string, boolean>();
 

@@ -57,10 +57,10 @@ On macOS, you can explicitly copy cookies from a Chrome-family system profile in
 
 ## Quick start
 
-Install the Browser Harness executable once on the Gateway host:
+Install Browser Harness 0.1.10 or newer once on the Gateway host:
 
 ```bash
-uv tool install --python 3.12 browser-harness
+uv tool install --python 3.12 'browser-harness>=0.1.10'
 browser-harness --version
 ```
 
@@ -127,23 +127,20 @@ Browser config changes require a Gateway restart so the plugin can re-register i
 
 ## Agent guidance
 
-Tool-profile note: `tools.profile: "coding"` includes `web_search` and
-`web_fetch`, but not the full `browser` tool. To let the agent or a
-spawned sub-agent use browser automation, add browser at the profile
-stage:
+`tools.profile: "coding"` includes the browser capability. Later policy layers
+can still narrow it for one agent or spawned sub-agents:
 
 ```json5
 {
   tools: {
     profile: "coding",
-    alsoAllow: ["browser"],
+    subagents: { tools: { deny: ["browser"] } },
   },
 }
 ```
 
-For a single agent, use `agents.entries.*.tools.alsoAllow: ["browser"]`.
-`tools.subagents.tools.allow: ["browser"]` alone is not enough because sub-agent
-policy is applied after profile filtering.
+The `messaging` profile still omits browser and exec. Add browser explicitly
+only when that channel/sender should have the capability.
 
 The model-facing tool has one required field, `code`. Browser Harness helpers
 such as `page_info()`, `new_tab()`, `goto_url()`, `wait_for_load()`, `cdp()`,
@@ -158,18 +155,21 @@ and ambiguous account choices remain manual boundaries.
 Browser Harness code is arbitrary Python. OpenClaw therefore exposes this
 engine only when the same final tool policy permits both `browser` and `exec`,
 the process runs on the Gateway, a run-cleanup owner exists, and the effective
-exec policy is already `security="full", ask="off"`. Approval-required,
-sandboxed, node-routed, run-bound, or evaluation-disabled turns retain the
-native browser engine. The Harness process receives a minimal environment with
-ambient provider/store credentials removed, fixed workspace and time limits,
-no background execution, and telemetry disabled.
+exec policy (including the persisted host approval floor) is already
+`security="full", ask="off"`. The local one-shot `openclaw agent exec` full
+session meets that boundary. Approval-required, sandboxed, node-routed,
+run-bound, or evaluation-disabled turns retain the native browser engine. The
+Harness process receives a minimal environment with ambient provider/store
+credentials removed, fixed workspace and time limits, no background execution,
+and telemetry disabled.
 
 This is an exec-equivalent power tool, not a browser sandbox. Its Python can
 read host files or make network calls wherever ordinary approved host exec can.
-The extension still limits which Chrome tabs it exposes, but OpenClaw's native
-per-navigation SSRF and snapshot-reference checks do not inspect arbitrary raw
-CDP or Python. Use sandboxing or `modelEngine="native"` when those narrower
-browser-only boundaries are required.
+That does not add authority to a run where approval-free exec already survived,
+but it does mean OpenClaw's native per-navigation SSRF and snapshot-reference
+checks cannot inspect arbitrary raw CDP or Python. The extension still limits
+which Chrome tabs it exposes. Use sandboxing, deny exec, or set
+`modelEngine="native"` when those narrower browser-only boundaries are required.
 
 ## Missing browser command or tool
 
