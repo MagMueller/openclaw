@@ -35,10 +35,13 @@ openclaw browser --browser-profile openclaw open https://example.com
 openclaw browser --browser-profile openclaw snapshot
 ```
 
-The default model-facing Browser Harness tool has a `code` field rather than
-these CLI subcommands. Operators should use `openclaw browser doctor` for
-transport diagnostics; model turns receive the resulting connection error and
-an install or pairing hint.
+When an authorized local run selects Browser Harness, the model-facing browser
+tool has a `code` field rather than these CLI subcommands. In `auto` mode,
+OpenClaw keeps the native `action`-based browser tool when Browser Harness is
+missing, too old, or ineligible under the run's browser and execution policy.
+Operators can use `openclaw browser doctor` for transport diagnostics. An
+explicit `browser.modelEngine: "browser-harness"` selection reports the install
+or connection error instead of silently falling back.
 
 ## Quick troubleshooting
 

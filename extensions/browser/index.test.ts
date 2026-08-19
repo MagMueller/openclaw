@@ -15,6 +15,25 @@ import { BrowserToolOutputSchema } from "./src/browser-tool.schema.js";
 
 type BrowserAutoEnableProbe = Parameters<OpenClawPluginApi["registerAutoEnableProbe"]>[0];
 
+function schemaDeclaresProperty(schema: unknown, property: string): boolean {
+  if (!schema || typeof schema !== "object") {
+    return false;
+  }
+  const record = schema as Record<string, unknown>;
+  if (
+    record.properties &&
+    typeof record.properties === "object" &&
+    Object.hasOwn(record.properties, property)
+  ) {
+    return true;
+  }
+  return Object.values(record).some((value) =>
+    Array.isArray(value)
+      ? value.some((entry) => schemaDeclaresProperty(entry, property))
+      : schemaDeclaresProperty(value, property),
+  );
+}
+
 const runtimeApiMocks = vi.hoisted(() => ({
   createBrowserPluginService: vi.fn(() => ({ id: "browser-control", start: vi.fn() })),
   createBrowserTool: vi.fn(() => ({
@@ -266,10 +285,17 @@ describe("browser plugin", () => {
       },
     });
 
-    expect(Array.isArray(tools) ? tools.map((tool) => tool.name) : []).toEqual([
-      "browser",
-      "browser_exec",
-    ]);
+    if (!Array.isArray(tools)) {
+      throw new Error("expected native and Browser Harness policy candidates");
+    }
+    expect(tools.map((tool) => tool.name)).toEqual(["browser", "browser_exec"]);
+    const native = tools.find((tool) => tool.name === "browser");
+    const harness = tools.find((tool) => tool.name === "browser_exec");
+    expect(schemaDeclaresProperty(native?.parameters, "action")).toBe(true);
+    expect(schemaDeclaresProperty(native?.parameters, "code")).toBe(false);
+    expect(schemaDeclaresProperty(harness?.parameters, "code")).toBe(true);
+    expect(schemaDeclaresProperty(harness?.parameters, "action")).toBe(false);
+    expect(harness?.selectionPreflight).toBeTypeOf("function");
   });
 
   it("defers auto-mode Browser Harness availability until final selection", () => {
