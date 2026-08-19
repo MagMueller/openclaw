@@ -2303,6 +2303,40 @@ describe("resolvePluginTools optional tools", () => {
     expect(factory).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps descriptor caching from discarding deferred tool preflights", () => {
+    const preflights: Array<ReturnType<typeof vi.fn>> = [];
+    const factory = vi.fn(() => {
+      const selectionPreflight = vi.fn(() => true);
+      preflights.push(selectionPreflight);
+      return [
+        makeTool("cached_preflight_sibling"),
+        { ...makeTool("cached_preflight_tool"), selectionPreflight },
+      ];
+    });
+    setRegistry([
+      {
+        pluginId: "cache-preflight-test",
+        optional: false,
+        source: "/tmp/cache-preflight-test.js",
+        names: ["cached_preflight_sibling", "cached_preflight_tool"],
+        factory,
+      },
+    ]);
+
+    const first = resolvePluginTools(createResolveToolsParams());
+    const second = resolvePluginTools(createResolveToolsParams());
+
+    expectResolvedToolNames(first, ["cached_preflight_sibling", "cached_preflight_tool"]);
+    expectResolvedToolNames(second, ["cached_preflight_sibling", "cached_preflight_tool"]);
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(preflights).toHaveLength(2);
+    expect(second.find((tool) => tool.name === "cached_preflight_tool")?.selectionPreflight).toBe(
+      preflights[1],
+    );
+    expect(preflights[0]).not.toHaveBeenCalled();
+    expect(preflights[1]).not.toHaveBeenCalled();
+  });
+
   it("keeps cached ordinary plugin tools free of network provenance", async () => {
     const factory = vi.fn(() => makeTool("cached_ordinary_tool"));
     setRegistry([
