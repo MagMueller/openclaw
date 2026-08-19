@@ -11,7 +11,9 @@ import {
 } from "./plugin-registration.js";
 import type { OpenClawPluginApi } from "./runtime-api.js";
 import setupPlugin from "./setup-api.js";
+import { configureBrowserHarnessReadinessStateReader } from "./src/browser-harness-readiness.js";
 import { BrowserToolOutputSchema } from "./src/browser-tool.schema.js";
+import type { BrowserServerState } from "./src/browser/server-context.types.js";
 
 type BrowserAutoEnableProbe = Parameters<OpenClawPluginApi["registerAutoEnableProbe"]>[0];
 
@@ -76,10 +78,12 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  configureBrowserHarnessReadinessStateReader(undefined);
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  configureBrowserHarnessReadinessStateReader(undefined);
 });
 
 function createApi() {
@@ -319,6 +323,129 @@ describe("browser plugin", () => {
       : undefined;
     expect(harness?.selectionPreflight?.()).toBe(false);
   });
+
+  it.runIf(process.platform !== "win32")(
+    "selects an auto Chrome Harness only after its extension relay is connected",
+    () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(process.env.TMPDIR ?? "/tmp", "openclaw-bh-chrome-ready-"),
+      );
+      const executable = path.join(tempDir, "browser-harness");
+      const marker = path.join(tempDir, "invoked");
+      fs.writeFileSync(
+        executable,
+        `#!/bin/sh\ntouch '${marker}'\nprintf '%s\\n' 'browser-harness 0.1.10'\n`,
+        { mode: 0o755 },
+      );
+      const setRelayConnected = (connected: boolean) => {
+        configureBrowserHarnessReadinessStateReader(
+          () =>
+            ({
+              resolved: { profiles: { chrome: { driver: "extension" } } },
+              extensionRelays: new Map([["chrome", { bridge: { extensionConnected: connected } }]]),
+            }) as unknown as BrowserServerState,
+        );
+      };
+      try {
+        const { api, registerTool } = createApi();
+        registerBrowserPlugin(api);
+        const factory = mockCallArg(registerTool);
+        if (typeof factory !== "function") {
+          throw new Error("expected browser plugin to register a tool factory");
+        }
+        const createContext = (modelEngine: "auto" | "browser-harness") => ({
+          config: {
+            browser: {
+              modelEngine,
+              harness: { defaultTarget: "chrome" as const, executablePath: executable },
+            },
+          },
+          sessionId: `session-chrome-${modelEngine}`,
+          workspaceDir: "/workspace",
+          browser: { harnessExec: { execute: vi.fn() } },
+        });
+        const autoTools = factory(createContext("auto"));
+        const autoHarness = Array.isArray(autoTools)
+          ? autoTools.find((candidate) => candidate.name === "browser_exec")
+          : undefined;
+
+        expect(autoHarness?.selectionPreflight?.()).toBe(false);
+        expect(fs.existsSync(marker)).toBe(false);
+        setRelayConnected(false);
+        expect(autoHarness?.selectionPreflight?.()).toBe(false);
+        expect(fs.existsSync(marker)).toBe(false);
+        setRelayConnected(true);
+        expect(autoHarness?.selectionPreflight?.()).toBe(true);
+        expect(fs.existsSync(marker)).toBe(true);
+
+        setRelayConnected(false);
+        const explicitTools = factory(createContext("browser-harness"));
+        const explicitHarness = Array.isArray(explicitTools)
+          ? explicitTools.find((candidate) => candidate.name === "browser_exec")
+          : undefined;
+        expect(explicitHarness?.selectionPreflight?.()).toBe(true);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "matches auto profile readiness to the exact custom extension relay",
+    () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(process.env.TMPDIR ?? "/tmp", "openclaw-bh-profile-ready-"),
+      );
+      const executable = path.join(tempDir, "browser-harness");
+      fs.writeFileSync(executable, "#!/bin/sh\nprintf '%s\\n' 'browser-harness 0.1.10'\n", {
+        mode: 0o755,
+      });
+      const setConnectedProfile = (profileName: string, connected: boolean) => {
+        configureBrowserHarnessReadinessStateReader(
+          () =>
+            ({
+              resolved: { profiles: { [profileName]: { driver: "extension" } } },
+              extensionRelays: new Map([
+                [profileName, { bridge: { extensionConnected: connected } }],
+              ]),
+            }) as unknown as BrowserServerState,
+        );
+      };
+      try {
+        const { api, registerTool } = createApi();
+        registerBrowserPlugin(api);
+        const factory = mockCallArg(registerTool);
+        if (typeof factory !== "function") {
+          throw new Error("expected browser plugin to register a tool factory");
+        }
+        const tools = factory({
+          config: {
+            browser: {
+              modelEngine: "auto",
+              defaultProfile: "work",
+              profiles: { work: { driver: "extension", color: "#00AA00" } },
+              harness: { defaultTarget: "profile", executablePath: executable },
+            },
+          },
+          sessionId: "session-extension-profile",
+          workspaceDir: "/workspace",
+          browser: { harnessExec: { execute: vi.fn() } },
+        });
+        const harness = Array.isArray(tools)
+          ? tools.find((candidate) => candidate.name === "browser_exec")
+          : undefined;
+
+        setConnectedProfile("chrome", true);
+        expect(harness?.selectionPreflight?.()).toBe(false);
+        setConnectedProfile("work", false);
+        expect(harness?.selectionPreflight?.()).toBe(false);
+        setConnectedProfile("work", true);
+        expect(harness?.selectionPreflight?.()).toBe(true);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("keeps native auto mode for a Chrome MCP default profile", () => {
     const { api, registerTool } = createApi();

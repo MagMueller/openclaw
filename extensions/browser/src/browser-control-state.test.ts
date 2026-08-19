@@ -1,6 +1,8 @@
 // Browser tests cover shared browser-control lifecycle serialization.
 import type { Server } from "node:http";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { isBrowserHarnessExtensionTargetReady } from "./browser-harness-readiness.js";
+import type { ExtensionRelayHandle } from "./browser/extension-relay/relay-server.js";
 import { markBrowserRuntimeStopping } from "./browser/server-context.lifecycle.js";
 
 const runtimeMocks = vi.hoisted(() => ({
@@ -48,6 +50,30 @@ beforeEach(() => {
 });
 
 describe("browser control lifecycle", () => {
+  it("publishes only a connected extension relay as Harness Chrome readiness", async () => {
+    const state = await withBrowserControlStart(() =>
+      ensureBrowserControlRuntime({
+        server: null,
+        port: 18_791,
+        resolved: {
+          profiles: { chrome: { driver: "extension" } },
+          controlPort: 18_791,
+        } as never,
+        owner: "service",
+        onWarn,
+      }),
+    );
+    const bridge = { extensionConnected: false };
+    state.extensionRelays = new Map([["chrome", { bridge } as unknown as ExtensionRelayHandle]]);
+
+    expect(isBrowserHarnessExtensionTargetReady("chrome")).toBe(false);
+    bridge.extensionConnected = true;
+    expect(isBrowserHarnessExtensionTargetReady("chrome")).toBe(true);
+
+    await stop("service");
+    expect(isBrowserHarnessExtensionTargetReady("chrome")).toBe(false);
+  });
+
   it("allows a start queued after a no-state stop", async () => {
     const stopping = stop("service");
     const starting = start("service");

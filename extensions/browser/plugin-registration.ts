@@ -29,6 +29,7 @@ import {
 } from "./src/browser-harness-cloud-leases.js";
 import { hasStableHarnessEndpointHostname } from "./src/browser-harness-endpoint.js";
 import { hasBrowserHarnessOrchestratorBinding } from "./src/browser-harness-orchestrator.js";
+import { isBrowserHarnessExtensionTargetReady } from "./src/browser-harness-readiness.js";
 import {
   BrowserHarnessToolOutputSchema,
   BrowserHarnessToolSchema,
@@ -245,6 +246,14 @@ function createLazyBrowserHarnessTool(
     resolvedDefaultProfile !== null &&
     (resolvedDefaultProfile.driver === "existing-session" ||
       !hasStableHarnessEndpointHostname(resolvedDefaultProfile.cdpUrl));
+  const autoExtensionRelayProfileName =
+    engine !== "auto"
+      ? undefined
+      : harnessDefaultTarget === "chrome"
+        ? "chrome"
+        : resolvedDefaultProfile?.driver === "extension"
+          ? resolvedDefaultProfile.name
+          : undefined;
   if (
     !exec ||
     !sessionId ||
@@ -291,7 +300,13 @@ function createLazyBrowserHarnessTool(
     // The final selector calls this only after browser + exec policy survived.
     // Keeping the executable probe here also prevents descriptor caching from
     // moving this run-specific check back ahead of policy.
-    selectionPreflight: () => resolvePreflight().supported,
+    selectionPreflight: () =>
+      // Auto mode must not replace the native tool merely because the Harness
+      // executable exists: an extension-backed target also requires its exact
+      // paired, hello-complete relay. Explicit Harness remains fail-loud.
+      (!autoExtensionRelayProfileName ||
+        isBrowserHarnessExtensionTargetReady(autoExtensionRelayProfileName)) &&
+      resolvePreflight().supported,
     execute: async (toolCallId, args, signal, onUpdate) => {
       if (!loadedTool) {
         const resolved = resolvePreflight();

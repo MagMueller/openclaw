@@ -5,6 +5,7 @@
  * so local tools can attach to the same browser runtime without racing owners.
  */
 import type { Server } from "node:http";
+import { configureBrowserHarnessReadinessStateReader } from "./browser-harness-readiness.js";
 import { BrowserProfileUnavailableError } from "./browser/errors.js";
 import { createBrowserRuntimeState, stopBrowserRuntime } from "./browser/runtime-lifecycle.js";
 import { type BrowserServerState, createBrowserRouteContext } from "./browser/server-context.js";
@@ -44,6 +45,10 @@ export function withBrowserControlStart<T>(run: () => Promise<T>): Promise<T> {
 export function getBrowserControlState(): BrowserServerState | null {
   return state && isBrowserRuntimeRunning(state) ? state : null;
 }
+
+// Keep plugin registration lazy: it imports only the tiny readiness seam, while
+// this runtime-owned module supplies access to its live state once loaded.
+configureBrowserHarnessReadinessStateReader(getBrowserControlState);
 
 /** Create a route context bound to the current shared browser runtime. */
 export function createBrowserControlContext() {
