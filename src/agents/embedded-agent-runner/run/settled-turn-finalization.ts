@@ -115,13 +115,11 @@ export async function prepareTerminalWithSettledTurnFinalization(input: {
     const finalization = await runPreparedSettledTurnFinalization({
       attempt: {
         ...input.finalization.preparedAttempt,
-        abortSignal:
-          runParams.abortSignal && input.finalization.preparedAttempt.abortSignal
-            ? AbortSignal.any([
-                runParams.abortSignal,
-                input.finalization.preparedAttempt.abortSignal,
-              ])
-            : (runParams.abortSignal ?? input.finalization.preparedAttempt.abortSignal),
+        // The dispatched attempt signal also owns that attempt's prompt and
+        // model-idle deadline. It may already be aborted when finalization is
+        // the recovery path. Carry only the parent run signal; the fresh
+        // finalizer arms its own attempt deadline internally.
+        abortSignal: runParams.abortSignal,
       },
       settledAttempt: initial.attempt,
       harness: input.finalization.harness,

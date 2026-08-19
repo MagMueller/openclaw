@@ -195,6 +195,36 @@ describe("prepareTerminalWithSettledTurnFinalization", () => {
     });
   });
 
+  it("does not inherit an expired ordinary-attempt signal during recovery finalization", async () => {
+    const attempt = settledFailedAttempt();
+    const input = finalizationInput(attempt);
+    const expiredAttempt = new AbortController();
+    expiredAttempt.abort(new DOMException("ordinary attempt timed out", "TimeoutError"));
+    const parentRun = new AbortController();
+    input.finalization.preparedAttempt.abortSignal = expiredAttempt.signal;
+    input.terminalBase.runParams.abortSignal = parentRun.signal;
+    const finalAssistant = buildEmbeddedRunnerAssistant({
+      content: [{ type: "text", text: "Recovered final answer." }],
+    });
+    backendMocks.runSettledFinalization.mockImplementationOnce(
+      async (preparedAttempt: { abortSignal?: AbortSignal }) => {
+        expect(preparedAttempt.abortSignal).toBe(parentRun.signal);
+        expect(preparedAttempt.abortSignal?.aborted).toBe(false);
+        return {
+          outcome: "answered" as const,
+          result: { assistant: finalAssistant, usage: finalAssistant.usage },
+        };
+      },
+    );
+
+    const result = await prepareTerminalWithSettledTurnFinalization(input);
+
+    expect(result.finalizationOutcome).toBe("answered");
+    expect(result.prepared.payloadsWithToolMedia).toEqual([
+      expect.objectContaining({ text: "Recovered final answer." }),
+    ]);
+  });
+
   it("preserves the settled runtime context window through isolated finalization", async () => {
     const attempt = {
       ...settledFailedAttempt(),
