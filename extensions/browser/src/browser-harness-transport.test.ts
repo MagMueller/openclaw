@@ -1,21 +1,34 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {
+  createPluginStateKeyedStoreForTests,
+  resetPluginStateStoreForTests,
+} from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireBrowserHarnessCloudLease,
   deactivateBrowserHarnessCloudLease,
+  hasBrowserHarnessCloudLeases,
+  openBrowserHarnessCloudLeaseStore,
   reconcileStaleBrowserHarnessCloudLeases,
 } from "./browser-harness-cloud-leases.js";
-import {
-  assertStableHarnessWebSocketEndpoint,
-  prepareBrowserHarnessRuntime,
-} from "./browser-harness-transport.js";
+import { assertStableHarnessWebSocketEndpoint } from "./browser-harness-endpoint.js";
+import { prepareBrowserHarnessRuntime } from "./browser-harness-transport.js";
 
 describe("Browser Harness CDP subprocess boundary", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    resetPluginStateStoreForTests();
   });
+
+  const openCloudLeaseStore = (stateDir: string) =>
+    openBrowserHarnessCloudLeaseStore((options) =>
+      createPluginStateKeyedStoreForTests("browser", {
+        ...options,
+        env: { OPENCLAW_STATE_DIR: stateDir },
+      }),
+    );
 
   it.each([
     "ws://127.0.0.1:9222/devtools/browser/id",
@@ -44,6 +57,7 @@ describe("Browser Harness CDP subprocess boundary", () => {
     async () => {
       const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-bh-reuse-"));
       const runtimeDir = path.join(root, "runtime");
+      const cloudLeaseStore = openCloudLeaseStore(path.join(root, "state"));
       const executable = path.join(root, "assert-existing-daemon.sh");
       await writeFile(
         executable,
@@ -56,6 +70,7 @@ describe("Browser Harness CDP subprocess boundary", () => {
       try {
         const runtime = await prepareBrowserHarnessRuntime({
           browserConfig: undefined,
+          cloudLeaseStore,
           target: "cloud",
           sessionId: "reuse-daemon-session",
           workspaceDir: root,
@@ -73,6 +88,27 @@ describe("Browser Harness CDP subprocess boundary", () => {
     },
   );
 
+  it("fails closed before a one-shot run can self-provision a cloud browser", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-bh-one-shot-cloud-"));
+    const cloudLeaseStore = openCloudLeaseStore(path.join(root, "state"));
+    try {
+      await expect(
+        prepareBrowserHarnessRuntime({
+          browserConfig: undefined,
+          cloudLeaseStore,
+          target: "cloud",
+          sessionId: "ephemeral-one-shot",
+          workspaceDir: root,
+          executablePath: "/usr/bin/true",
+          allowCloudProvisioning: false,
+        }),
+      ).rejects.toThrow("crash-recovery state is ephemeral");
+      await expect(hasBrowserHarnessCloudLeases(cloudLeaseStore)).resolves.toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it.runIf(process.platform !== "win32")(
     "reconciles a prior crashed OpenClaw cloud lease before provisioning another browser",
     async () => {
@@ -83,14 +119,17 @@ describe("Browser Harness CDP subprocess boundary", () => {
       await mkdir(staleRoot, { recursive: true, mode: 0o700 });
       await writeFile(executable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
       vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
-      const staleLeasePath = await acquireBrowserHarnessCloudLease({
+      const cloudLeaseStore = openCloudLeaseStore(stateDir);
+      const staleLease = await acquireBrowserHarnessCloudLease({
+        store: cloudLeaseStore,
         root: staleRoot,
         name: "oc_4444444444444444",
       });
-      deactivateBrowserHarnessCloudLease(staleLeasePath);
+      deactivateBrowserHarnessCloudLease(staleLease);
       try {
         const runtime = await prepareBrowserHarnessRuntime({
           browserConfig: undefined,
+          cloudLeaseStore,
           target: "cloud",
           sessionId: "fresh-cloud-session",
           workspaceDir: testRoot,
@@ -126,9 +165,11 @@ describe("Browser Harness CDP subprocess boundary", () => {
         { mode: 0o755 },
       );
       vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+      const cloudLeaseStore = openCloudLeaseStore(stateDir);
       try {
         const runtime = await prepareBrowserHarnessRuntime({
           browserConfig: undefined,
+          cloudLeaseStore,
           target: "cloud",
           sessionId: "cleanup-retry-session",
           workspaceDir: testRoot,
@@ -139,6 +180,7 @@ describe("Browser Harness CDP subprocess boundary", () => {
         const cleaned: string[] = [];
         await expect(
           reconcileStaleBrowserHarnessCloudLeases({
+            store: cloudLeaseStore,
             cleanup: async (lease) => {
               cleaned.push(lease.name);
             },

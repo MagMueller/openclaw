@@ -12,6 +12,7 @@ const runtimeMocks = vi.hoisted(() => ({
     stderr: "",
   })),
   handleGatewayExtensionUpgrade: vi.fn(async () => true),
+  cloudLeaseStore: {},
   hasBrowserHarnessCloudLeases: vi.fn(async () => false),
   reconcileBrowserHarnessCloudLeases: vi.fn(async () => 0),
   stopBrowserControlService: vi.fn(async () => undefined),
@@ -31,6 +32,7 @@ vi.mock("./src/browser/extension-relay/gateway-relay-route.js", () => ({
 }));
 
 vi.mock("./src/browser-harness-cloud-leases.js", () => ({
+  openBrowserHarnessCloudLeaseStore: vi.fn(() => runtimeMocks.cloudLeaseStore),
   hasBrowserHarnessCloudLeases: runtimeMocks.hasBrowserHarnessCloudLeases,
 }));
 
@@ -52,7 +54,7 @@ function registerLifecycleCallbacks() {
   registerBrowserPlugin(
     createTestPluginApi({
       runtime: {
-        state: { openKeyedStore: vi.fn() },
+        state: { openKeyedStore: vi.fn(), openSyncKeyedStore: vi.fn() },
       } as never,
       registerHttpRoute(value) {
         route = value;
@@ -86,6 +88,7 @@ describe("browser relay shutdown registration", () => {
 
     expect(runtimeMocks.reconcileBrowserHarnessCloudLeases).toHaveBeenCalledWith({
       browserConfig: { enabled: true, harness: { executablePath: process.execPath } },
+      cloudLeaseStore: runtimeMocks.cloudLeaseStore,
       executablePath: process.execPath,
     });
   });

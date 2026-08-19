@@ -284,6 +284,7 @@ export function prepareEmbeddedAttemptToolBase(params: {
           conversationRecall: attempt.conversationRecall,
           approvalReviewerDeviceId: attempt.approvalReviewerDeviceId,
           oneShotCliRun: attempt.oneShotCliRun,
+          ephemeralRunState: attempt.ephemeralRunState,
           toolSearchCatalogRef,
           agentDir: params.agentDir,
           preparedModelRuntime: attempt.preparedModelRuntime,

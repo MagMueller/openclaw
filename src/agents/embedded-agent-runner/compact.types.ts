@@ -146,6 +146,8 @@ export type CompactEmbeddedAgentSessionParams = {
   allowGatewaySubagentBinding?: boolean;
   /** Mark explicit one-shot local CLI runs so plugin tools can release resources promptly. */
   oneShotCliRun?: boolean;
+  /** Durable plugin state is unavailable after this run exits. */
+  ephemeralRunState?: boolean;
 };
 
 export type CompactEmbeddedAgentSessionRuntimeParams = Omit<

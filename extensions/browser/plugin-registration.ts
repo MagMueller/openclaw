@@ -24,6 +24,10 @@ import {
   BROWSER_REQUEST_GATEWAY_SCOPE,
 } from "./src/browser-gateway-contract.js";
 import {
+  openBrowserHarnessCloudLeaseStore,
+  type BrowserHarnessCloudLeaseStore,
+} from "./src/browser-harness-cloud-leases.js";
+import {
   BrowserHarnessToolOutputSchema,
   BrowserHarnessToolSchema,
 } from "./src/browser-harness-tool.schema.js";
@@ -209,7 +213,10 @@ function createLazyBrowserTool(
   };
 }
 
-function createLazyBrowserHarnessTool(ctx: OpenClawPluginToolContext): AnyAgentTool | null {
+function createLazyBrowserHarnessTool(
+  ctx: OpenClawPluginToolContext,
+  cloudLeaseStore: BrowserHarnessCloudLeaseStore,
+): AnyAgentTool | null {
   const exec = ctx.browser?.harnessExec;
   const sessionId = ctx.sessionId?.trim();
   const workspaceDir = ctx.workspaceDir?.trim();
@@ -244,12 +251,14 @@ function createLazyBrowserHarnessTool(ctx: OpenClawPluginToolContext): AnyAgentT
         const { createBrowserHarnessTool } = await loadBrowserRegistrationRuntimeModule();
         loadedTool = createBrowserHarnessTool({
           exec,
+          cloudLeaseStore,
           getBrowserConfig: () =>
             (ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config)?.browser,
           sessionId,
           workspaceDir,
           allowHostControl: ctx.browser?.allowHostControl,
           oneShotCliRun: ctx.oneShotCliRun,
+          ephemeralRunState: ctx.ephemeralRunState,
           registerRunCleanup: ctx.registerRunCleanup,
           ...(executable ? { executablePath: executable } : {}),
           ...(!supported
@@ -360,7 +369,9 @@ export const browserSecurityAuditCollectors: OpenClawPluginSecurityAuditCollecto
   },
 ];
 
-function createLazyBrowserPluginService(): OpenClawPluginService {
+function createLazyBrowserPluginService(
+  cloudLeaseStore: BrowserHarnessCloudLeaseStore,
+): OpenClawPluginService {
   let service: OpenClawPluginService | null = null;
   let leaseReaperTimer: NodeJS.Timeout | undefined;
   let leaseReaperPromise: Promise<void> | undefined;
@@ -392,7 +403,7 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
       try {
         const { hasBrowserHarnessCloudLeases } =
           await import("./src/browser-harness-cloud-leases.js");
-        if (await hasBrowserHarnessCloudLeases()) {
+        if (await hasBrowserHarnessCloudLeases(cloudLeaseStore)) {
           const configuredExecutable =
             ctx.config.browser?.harness?.executablePath?.trim() || "browser-harness";
           const executable = resolveExecutablePath(configuredExecutable);
@@ -405,6 +416,7 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
             await import("./src/browser-harness-transport.js");
           const recovered = await reconcileBrowserHarnessCloudLeases({
             browserConfig: ctx.config.browser,
+            cloudLeaseStore,
             executablePath: executable,
           });
           if (recovered > 0) {
@@ -461,6 +473,9 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
 /** Register Browser tool factories, CLI, gateway methods, services, and audits. */
 export function registerBrowserPlugin(api: OpenClawPluginApi) {
   initializeBrowserSessionTabStore(api.runtime);
+  const cloudLeaseStore = openBrowserHarnessCloudLeaseStore((options) =>
+    api.runtime.state.openKeyedStore(options),
+  );
   configureSystemProfileImportStateStore(
     api.runtime.state.openKeyedStore<SystemProfileImportState>({
       namespace: "browser.system-profile-import",
@@ -470,7 +485,7 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
   api.registerTool(((ctx: OpenClawPluginToolContext) => {
     const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
     const nativeTool = createLazyBrowserTool(createBrowserToolOptions(ctx), config);
-    const harnessTool = createLazyBrowserHarnessTool(ctx);
+    const harnessTool = createLazyBrowserHarnessTool(ctx, cloudLeaseStore);
     return harnessTool ? [nativeTool, harnessTool] : nativeTool;
   }) as OpenClawPluginToolFactory);
   api.registerCli(
@@ -511,5 +526,5 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
       return await handleGatewayExtensionUpgrade(req, socket, head);
     },
   });
-  api.registerService(createLazyBrowserPluginService());
+  api.registerService(createLazyBrowserPluginService(cloudLeaseStore));
 }

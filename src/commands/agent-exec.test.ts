@@ -571,7 +571,12 @@ describe("agent exec command composition", () => {
     await agentExecCommand("inspect", { cwd: root }, runtime, { runAgent });
 
     expect(runAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ workspaceDir: root, cwd: root }),
+      expect.objectContaining({
+        workspaceDir: root,
+        cwd: root,
+        oneShotCliRun: true,
+        ephemeralRunState: true,
+      }),
       expect.any(Object),
     );
   });
@@ -715,8 +720,9 @@ describe("agent exec command composition", () => {
     const { runtime } = createRuntime();
 
     await agentExecCommand("inspect", { stateDir }, runtime, {
-      runAgent: vi.fn(async () => {
+      runAgent: vi.fn(async (opts) => {
         expect(process.env.OPENCLAW_STATE_DIR).toBe(stateDir);
+        expect(opts.ephemeralRunState).toBe(false);
         return successResult();
       }),
     });

@@ -272,6 +272,8 @@ export type RunCliAgentParams = {
   cleanupBundleMcpOnRunEnd?: boolean;
   /** Mark explicit one-shot local CLI runs so plugin tools can release resources promptly. */
   oneShotCliRun?: boolean;
+  /** Durable plugin state is unavailable after this run exits. */
+  ephemeralRunState?: boolean;
 };
 
 /** Backend config after MCP, skill, env, and cleanup preparation. */

@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -9,7 +8,10 @@ import {
   deactivateBrowserHarnessCloudLease,
   reconcileStaleBrowserHarnessCloudLeases,
   releaseBrowserHarnessCloudLease,
+  type BrowserHarnessCloudLeaseHandle,
+  type BrowserHarnessCloudLeaseStore,
 } from "./browser-harness-cloud-leases.js";
+import { assertStableHarnessWebSocketEndpoint } from "./browser-harness-endpoint.js";
 import {
   appendCdpPath,
   assertCdpEndpointAllowed,
@@ -100,6 +102,7 @@ function addCloudBootstrapCredentials(env: Record<string, string>): Record<strin
 
 export async function reconcileBrowserHarnessCloudLeases(params: {
   browserConfig: BrowserConfig | undefined;
+  cloudLeaseStore: BrowserHarnessCloudLeaseStore;
   executablePath?: string;
   signal?: AbortSignal;
 }): Promise<number> {
@@ -107,6 +110,7 @@ export async function reconcileBrowserHarnessCloudLeases(params: {
     params.executablePath ??
     (params.browserConfig?.harness?.executablePath?.trim() || "browser-harness");
   return await reconcileStaleBrowserHarnessCloudLeases({
+    store: params.cloudLeaseStore,
     cleanup: async (lease) => {
       const staleEnv = addCloudBootstrapCredentials(
         baseHarnessEnv({
@@ -235,17 +239,6 @@ function addConfiguredCredentials(discoveredWsUrl: string, configuredCdpUrl: str
   return discovered.toString();
 }
 
-export function assertStableHarnessWebSocketEndpoint(wsUrl: string): string {
-  const parsed = new URL(wsUrl);
-  const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
-  if (isIP(hostname) === 0) {
-    throw new Error(
-      `Browser Harness cannot safely re-resolve remote CDP hostname ${JSON.stringify(parsed.hostname)}. Use browser.modelEngine=native for this profile until the Harness connection is routed through OpenClaw's pinned CDP broker.`,
-    );
-  }
-  return wsUrl;
-}
-
 async function resolveProfileWebSocket(params: {
   profileName: string;
   signal?: AbortSignal;
@@ -294,10 +287,12 @@ async function resolveProfileWebSocket(params: {
 
 export async function prepareBrowserHarnessRuntime(params: {
   browserConfig: BrowserConfig | undefined;
+  cloudLeaseStore: BrowserHarnessCloudLeaseStore;
   target: BrowserHarnessTarget;
   profile?: string;
   sessionId: string;
   workspaceDir: string;
+  allowCloudProvisioning?: boolean;
   signal?: AbortSignal;
   executablePath?: string;
 }): Promise<BrowserHarnessRuntime> {
@@ -322,12 +317,22 @@ export async function prepareBrowserHarnessRuntime(params: {
       `${EXISTING_DAEMON_ENV}=1 requires an absolute BH_RUNTIME_DIR and a valid BU_NAME`,
     );
   }
+  if (
+    params.target === "cloud" &&
+    !reuseExistingDaemon &&
+    params.allowCloudProvisioning === false
+  ) {
+    throw new Error(
+      "A one-shot agent exec cannot provision a managed cloud browser because its crash-recovery state is ephemeral. Pre-provision an orchestrator-owned Browser Harness daemon or run through the Gateway.",
+    );
+  }
   const executable =
     params.executablePath ??
     (params.browserConfig?.harness?.executablePath?.trim() || "browser-harness");
   if (params.target === "cloud" && !reuseExistingDaemon) {
     await reconcileBrowserHarnessCloudLeases({
       browserConfig: params.browserConfig,
+      cloudLeaseStore: params.cloudLeaseStore,
       executablePath: executable,
       signal: params.signal,
     });
@@ -355,7 +360,7 @@ export async function prepareBrowserHarnessRuntime(params: {
     // socket could make Browser Harness self-heal onto an unrelated local Chrome.
     bootstrapEnv.BH_REQUIRE_EXISTING_DAEMON = "1";
   }
-  let cloudLeasePath: string | undefined;
+  let cloudLease: BrowserHarnessCloudLeaseHandle | undefined;
   try {
     if (params.target === "cloud") {
       if (reuseExistingDaemon) {
@@ -369,7 +374,11 @@ export async function prepareBrowserHarnessRuntime(params: {
         // The durable lease exists before Browser Use Cloud provisioning. If
         // OpenClaw is SIGKILLed after the POST, the next process can find and
         // stop this exact browser without persisting its credential.
-        cloudLeasePath = await acquireBrowserHarnessCloudLease({ root, name });
+        cloudLease = await acquireBrowserHarnessCloudLease({
+          store: params.cloudLeaseStore,
+          root,
+          name,
+        });
         await runHarnessBootstrap({
           executable,
           env: bootstrapEnv,
@@ -401,7 +410,7 @@ export async function prepareBrowserHarnessRuntime(params: {
     publicEnv.BH_REQUIRE_EXISTING_DAEMON = "1";
   } catch (error) {
     let cleanupError: unknown;
-    if (!reuseExistingDaemon && (params.target !== "cloud" || cloudLeasePath)) {
+    if (!reuseExistingDaemon && (params.target !== "cloud" || cloudLease)) {
       try {
         await runHarnessBootstrap({
           executable,
@@ -410,16 +419,16 @@ export async function prepareBrowserHarnessRuntime(params: {
             ? { code: "stop_remote_daemon(NAME)\n" }
             : { args: ["--reload"] }),
         });
-        if (cloudLeasePath) {
-          await releaseBrowserHarnessCloudLease(cloudLeasePath);
+        if (cloudLease) {
+          await releaseBrowserHarnessCloudLease(params.cloudLeaseStore, cloudLease);
         }
       } catch (stopError) {
         cleanupError = stopError;
       }
     }
     if (cleanupError) {
-      if (cloudLeasePath) {
-        deactivateBrowserHarnessCloudLease(cloudLeasePath);
+      if (cloudLease) {
+        deactivateBrowserHarnessCloudLease(cloudLease);
       }
       // Keep the runtime/auth handle so an operator or retry can stop the
       // resource. Deleting it here would turn a cleanup failure into an orphan.
@@ -453,13 +462,13 @@ export async function prepareBrowserHarnessRuntime(params: {
             ? { code: "stop_remote_daemon(NAME)\n" }
             : { args: ["--reload"] }),
         });
-        if (cloudLeasePath) {
-          await releaseBrowserHarnessCloudLease(cloudLeasePath);
+        if (cloudLease) {
+          await releaseBrowserHarnessCloudLease(params.cloudLeaseStore, cloudLease);
         }
         await rm(root, { recursive: true, force: true });
       } catch (error) {
-        if (cloudLeasePath) {
-          deactivateBrowserHarnessCloudLease(cloudLeasePath);
+        if (cloudLease) {
+          deactivateBrowserHarnessCloudLease(cloudLease);
         }
         throw error;
       }

@@ -136,6 +136,17 @@ function registerBrowserAutoEnableProbe(): BrowserAutoEnableProbe {
 }
 
 describe("browser plugin", () => {
+  it("opens a non-expiring canonical SQLite namespace for cloud leases", () => {
+    const { api, openKeyedStore } = createApi();
+    registerBrowserPlugin(api);
+
+    expect(openKeyedStore).toHaveBeenCalledWith({
+      namespace: "browser.harness-cloud-leases",
+      maxEntries: 4_096,
+      overflowPolicy: "reject-new",
+    });
+  });
+
   it("opens a bounded SQLite namespace for import onboarding state", () => {
     const { api, openKeyedStore } = createApi();
     registerBrowserPlugin(api);

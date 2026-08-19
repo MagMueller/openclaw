@@ -160,11 +160,14 @@ engine only when the same final tool policy permits both `browser` and `exec`,
 the process runs on the Gateway, a run-cleanup owner exists, and the effective
 exec policy (including the persisted host approval floor) is already
 `security="full", ask="off"`. The local one-shot `openclaw agent exec` full
-session meets that boundary. Approval-required, sandboxed, node-routed,
-run-bound, or evaluation-disabled turns retain the native browser engine. The
-Harness process receives a minimal environment with ambient provider/store
-credentials removed, fixed workspace and time limits, no background execution,
-and telemetry disabled.
+session meets that execution boundary, but cannot self-provision a managed
+cloud browser when it uses the default temporary state database. Pass a durable
+`--state-dir`, use a Gateway session, or reuse an orchestrator-owned cloud
+daemon instead. Approval-required, sandboxed, node-routed, run-bound, or
+evaluation-disabled turns retain the native browser engine. The Harness process
+receives a minimal environment with ambient provider/store credentials removed,
+fixed workspace and time limits, no background execution, and telemetry
+disabled.
 
 This is an exec-equivalent power tool, not a browser sandbox. Its Python can
 read host files or make network calls wherever ordinary approved host exec can.
@@ -210,6 +213,10 @@ For model browser calls:
   the extension connects locally or directly outward to the Gateway that runs
   the Browser Harness process.
 - `target="cloud"`: one fresh Browser Use Cloud browser for the agent run.
+  Gateway runs may provision it directly. A one-shot `openclaw agent exec`
+  using the default temporary state database must reuse a caller-provisioned
+  Browser Harness daemon because that database cannot retain a cleanup lease
+  across SIGKILL. Pass a durable `--state-dir` to let it provision directly.
 - `target="profile", profile="openclaw"`: the isolated OpenClaw-managed browser.
 - `target="profile", profile="remote"`: a configured raw CDP provider whose
   WebSocket endpoint is already an IP address. Set `modelEngine: "native"` for

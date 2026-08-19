@@ -59,19 +59,24 @@ describe("applyLocalSetupWorkspaceConfig", () => {
 
   it.each([
     {
-      label: "agent defaults",
-      agents: { defaults: { tools: { profile: "messaging" as const } } },
+      label: "legacy SDK agent defaults",
+      base: {
+        agents: { defaults: { tools: { profile: "messaging" } } },
+      } as unknown as OpenClawConfig,
     },
     {
       label: "named agent",
-      agents: { entries: { main: { tools: { profile: "messaging" as const } } } },
+      base: { agents: { entries: { main: { tools: { profile: "messaging" } } } } },
     },
-  ])("does not add a global browser grant over $label tool policy", ({ agents }) => {
-    const result = applyLocalSetupWorkspaceConfig({ agents }, "/tmp/workspace");
+  ] satisfies Array<{ label: string; base: OpenClawConfig }>)(
+    "does not add a global browser grant over $label tool policy",
+    ({ base }) => {
+      const result = applyLocalSetupWorkspaceConfig(base, "/tmp/workspace");
 
-    expect(result.tools?.profile).toBe("coding");
-    expect(result.tools?.alsoAllow).toBeUndefined();
-  });
+      expect(result.tools?.profile).toBe("coding");
+      expect(result.tools?.alsoAllow).toBeUndefined();
+    },
+  );
 
   it("preserves agents.list and bindings on onboard rerun (openclaw#84692)", () => {
     const baseConfig: OpenClawConfig = {

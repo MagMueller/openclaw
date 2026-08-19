@@ -332,6 +332,7 @@ export async function buildPreparedCompactionRuntime(prepared: DirectCompactionP
           sessionId: params.sessionId,
           runId: params.runId,
           oneShotCliRun: params.oneShotCliRun,
+          ephemeralRunState: params.ephemeralRunState,
           groupId: params.groupId,
           groupChannel: params.groupChannel,
           groupSpace: params.groupSpace,

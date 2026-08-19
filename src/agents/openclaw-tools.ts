@@ -210,6 +210,8 @@ export function createOpenClawTools(
     conversationRecall?: ConversationRecallContext;
     /** One-shot local CLI runs release plugin-owned resources after their result. */
     oneShotCliRun?: boolean;
+    /** Durable plugin state is unavailable after this run exits. */
+    ephemeralRunState?: boolean;
     /**
      * Workspace directory to pass to spawned subagents for inheritance.
      * Defaults to workspaceDir. Use this to pass the actual agent workspace when the

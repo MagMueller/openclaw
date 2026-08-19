@@ -15,7 +15,7 @@ describe("agent exec browser authority", () => {
 
   it.each([
     {
-      label: "agent defaults",
+      label: "legacy SDK agent defaults",
       base: {
         agents: { defaults: { tools: { profile: "messaging" } } },
       } as unknown as OpenClawConfig,

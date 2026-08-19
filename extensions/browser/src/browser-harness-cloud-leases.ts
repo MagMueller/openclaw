@@ -1,30 +1,27 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import {
-  lstat,
-  mkdir,
-  open,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
+import type {
+  OpenKeyedStoreOptions,
+  PluginStateKeyedStore,
+} from "openclaw/plugin-sdk/plugin-state-runtime";
 
 const LEASE_VERSION = 1;
 const LEASE_LIVENESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const PROCESS_INSTANCE_ID = randomUUID();
 const OWNED_ROOT_PATTERN = /^ocbh-[a-f0-9]{16}$/;
 const OWNED_NAME_PATTERN = /^oc_[a-f0-9]{16}$/;
-const activeLeasePaths = new Set<string>();
+const activeLeaseIds = new Set<string>();
 
-export type BrowserHarnessCloudLease = {
+const BROWSER_HARNESS_CLOUD_LEASE_NAMESPACE = "browser.harness-cloud-leases";
+const BROWSER_HARNESS_CLOUD_LEASE_MAX_ENTRIES = 4096;
+
+type BrowserHarnessCloudLease = {
   version: 1;
+  leaseId: string;
   ownerPid: number;
   ownerInstanceId: string;
   /** Added after v1 shipped; absent legacy leases use existence plus the age ceiling. */
@@ -34,11 +31,28 @@ export type BrowserHarnessCloudLease = {
   createdAt: string;
 };
 
-export type BrowserHarnessCloudLeaseLiveness = {
+export type BrowserHarnessCloudLeaseStore = PluginStateKeyedStore<unknown>;
+
+export type BrowserHarnessCloudLeaseHandle = {
+  key: string;
+  leaseId: string;
+};
+
+type BrowserHarnessCloudLeaseLiveness = {
   nowMs?: number;
   processExists?: (pid: number) => boolean;
   readProcessStartToken?: (pid: number) => string | null;
 };
+
+export function openBrowserHarnessCloudLeaseStore(
+  openKeyedStore: <T>(options: OpenKeyedStoreOptions) => PluginStateKeyedStore<T>,
+): BrowserHarnessCloudLeaseStore {
+  return openKeyedStore<unknown>({
+    namespace: BROWSER_HARNESS_CLOUD_LEASE_NAMESPACE,
+    maxEntries: BROWSER_HARNESS_CLOUD_LEASE_MAX_ENTRIES,
+    overflowPolicy: "reject-new",
+  });
+}
 
 function readProcessStartToken(pid: number): string | null {
   if (!Number.isSafeInteger(pid) || pid <= 0) {
@@ -82,22 +96,6 @@ function processExists(pid: number): boolean {
 
 const PROCESS_START_TOKEN = readProcessStartToken(process.pid);
 
-function leaseDirectory(): string {
-  return path.join(resolveStateDir(), "browser", "harness-cloud-leases");
-}
-
-async function fsyncDirectory(directory: string): Promise<void> {
-  if (process.platform === "win32") {
-    return;
-  }
-  const handle = await open(directory, "r");
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-}
-
 function assertOwnedRoot(root: string): void {
   const expectedParent = path.resolve(process.platform === "win32" ? os.tmpdir() : "/tmp");
   const resolved = path.resolve(root);
@@ -116,6 +114,10 @@ function isBrowserHarnessCloudLease(value: unknown): value is BrowserHarnessClou
   return (
     "version" in value &&
     value.version === LEASE_VERSION &&
+    "leaseId" in value &&
+    typeof value.leaseId === "string" &&
+    value.leaseId.length >= 1 &&
+    value.leaseId.length <= 128 &&
     "ownerPid" in value &&
     typeof value.ownerPid === "number" &&
     Number.isInteger(value.ownerPid) &&
@@ -137,43 +139,23 @@ function isBrowserHarnessCloudLease(value: unknown): value is BrowserHarnessClou
   );
 }
 
-function parseLease(raw: string, leasePath: string): BrowserHarnessCloudLease {
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`Invalid Browser Harness cloud lease JSON: ${leasePath}`, { cause: error });
-  }
+function parseLease(value: unknown, key: string): BrowserHarnessCloudLease {
   if (!isBrowserHarnessCloudLease(value)) {
-    throw new Error(`Invalid Browser Harness cloud lease: ${leasePath}`);
+    throw new Error(`Invalid Browser Harness cloud lease: ${key}`);
   }
   assertOwnedRoot(value.root);
   return value;
 }
 
-function leasePathForRoot(root: string): string {
-  const id = createHash("sha256").update(path.resolve(root)).digest("hex").slice(0, 24);
-  return path.join(leaseDirectory(), `${id}.json`);
-}
-
-async function removeLeaseFile(leasePath: string): Promise<void> {
-  try {
-    await unlink(leasePath);
-  } catch (error) {
-    if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
-  }
-  activeLeasePaths.delete(leasePath);
-  await fsyncDirectory(path.dirname(leasePath));
+function leaseKeyForRoot(root: string): string {
+  return `sha256:${createHash("sha256").update(path.resolve(root)).digest("hex")}`;
 }
 
 function ownerProcessMayStillBeActive(
   lease: BrowserHarnessCloudLease,
-  leasePath: string,
   liveness: BrowserHarnessCloudLeaseLiveness,
 ): boolean {
-  if (activeLeasePaths.has(leasePath)) {
+  if (activeLeaseIds.has(lease.leaseId)) {
     return true;
   }
   if (lease.ownerPid === process.pid) {
@@ -200,34 +182,25 @@ function ownerProcessMayStillBeActive(
   return observedStartToken === null || observedStartToken === lease.ownerStartToken;
 }
 
-export async function hasBrowserHarnessCloudLeases(): Promise<boolean> {
-  try {
-    return (await readdir(leaseDirectory())).some((entry) => entry.endsWith(".json"));
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      return false;
-    }
-    throw error;
-  }
+export async function hasBrowserHarnessCloudLeases(
+  store: BrowserHarnessCloudLeaseStore,
+): Promise<boolean> {
+  return (await store.entries()).length > 0;
 }
 
 export async function acquireBrowserHarnessCloudLease(params: {
+  store: BrowserHarnessCloudLeaseStore;
   root: string;
   name: string;
-}): Promise<string> {
+}): Promise<BrowserHarnessCloudLeaseHandle> {
   assertOwnedRoot(params.root);
   if (!OWNED_NAME_PATTERN.test(params.name)) {
     throw new Error(`Invalid Browser Harness cloud lease name: ${JSON.stringify(params.name)}`);
   }
-  const directory = leaseDirectory();
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const leasePath = leasePathForRoot(params.root);
-  const pendingPath = path.join(
-    directory,
-    `.${path.basename(leasePath)}.${process.pid}.${randomUUID()}.pending`,
-  );
+  const key = leaseKeyForRoot(params.root);
   const lease: BrowserHarnessCloudLease = {
     version: LEASE_VERSION,
+    leaseId: randomUUID(),
     ownerPid: process.pid,
     ownerInstanceId: PROCESS_INSTANCE_ID,
     ownerStartToken: PROCESS_START_TOKEN,
@@ -235,59 +208,71 @@ export async function acquireBrowserHarnessCloudLease(params: {
     name: params.name,
     createdAt: new Date().toISOString(),
   };
-  activeLeasePaths.add(leasePath);
-  let committed = false;
+  activeLeaseIds.add(lease.leaseId);
   try {
-    await writeFile(pendingPath, `${JSON.stringify(lease)}\n`, { mode: 0o600, flag: "wx" });
-    const handle = await open(pendingPath, "r");
-    try {
-      await handle.sync();
-    } finally {
-      await handle.close();
+    if (!(await params.store.registerIfAbsent(key, lease))) {
+      throw new Error(`Browser Harness cloud lease already exists: ${key}`);
     }
-    await rename(pendingPath, leasePath);
-    await fsyncDirectory(directory);
-    committed = true;
-  } finally {
-    await unlink(pendingPath).catch(() => undefined);
-    if (!committed) {
-      activeLeasePaths.delete(leasePath);
-    }
+  } catch (error) {
+    activeLeaseIds.delete(lease.leaseId);
+    throw error;
   }
-  return leasePath;
+  return { key, leaseId: lease.leaseId };
 }
 
-export function deactivateBrowserHarnessCloudLease(leasePath: string): void {
-  activeLeasePaths.delete(leasePath);
+export function deactivateBrowserHarnessCloudLease(handle: BrowserHarnessCloudLeaseHandle): void {
+  activeLeaseIds.delete(handle.leaseId);
 }
 
-export async function releaseBrowserHarnessCloudLease(leasePath: string): Promise<void> {
-  await removeLeaseFile(leasePath);
+export async function releaseBrowserHarnessCloudLease(
+  store: BrowserHarnessCloudLeaseStore,
+  handle: BrowserHarnessCloudLeaseHandle,
+): Promise<void> {
+  try {
+    const deleteIf = store.deleteIf;
+    if (!deleteIf) {
+      throw new Error("Browser Harness cloud lease store does not support conditional deletion");
+    }
+    const deleted = await deleteIf(handle.key, (value) => {
+      const lease = parseLease(value, handle.key);
+      return lease.leaseId === handle.leaseId;
+    });
+    if (!deleted) {
+      throw new Error(
+        `Browser Harness cloud lease generation changed before release: ${handle.key}`,
+      );
+    }
+  } finally {
+    activeLeaseIds.delete(handle.leaseId);
+  }
 }
 
 export async function reconcileStaleBrowserHarnessCloudLeases(params: {
+  store: BrowserHarnessCloudLeaseStore;
   cleanup: (lease: BrowserHarnessCloudLease) => Promise<void>;
   liveness?: BrowserHarnessCloudLeaseLiveness;
 }): Promise<number> {
-  const directory = leaseDirectory();
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const entries = await readdir(directory, { withFileTypes: true });
+  const deleteIf = params.store.deleteIf;
+  if (!deleteIf) {
+    throw new Error("Browser Harness cloud lease store does not support conditional deletion");
+  }
+  const entries = (await params.store.entries()).toSorted((a, b) => a.key.localeCompare(b.key));
   let recovered = 0;
-  for (const entry of entries.toSorted((a, b) => a.name.localeCompare(b.name))) {
-    if (!entry.name.endsWith(".json")) {
-      continue;
-    }
-    const leasePath = path.join(directory, entry.name);
-    const stats = await lstat(leasePath);
-    if (!stats.isFile() || stats.isSymbolicLink()) {
-      throw new Error(`Invalid Browser Harness cloud lease file: ${leasePath}`);
-    }
-    const lease = parseLease(await readFile(leasePath, "utf8"), leasePath);
-    if (ownerProcessMayStillBeActive(lease, leasePath, params.liveness ?? {})) {
+  for (const entry of entries) {
+    const lease = parseLease(entry.value, entry.key);
+    if (ownerProcessMayStillBeActive(lease, params.liveness ?? {})) {
       continue;
     }
     await params.cleanup(lease);
-    await removeLeaseFile(leasePath);
+    const deleted = await deleteIf(entry.key, (value) => {
+      const current = parseLease(value, entry.key);
+      return current.leaseId === lease.leaseId;
+    });
+    if (!deleted) {
+      throw new Error(
+        `Browser Harness cloud lease generation changed during cleanup: ${entry.key}`,
+      );
+    }
     await rm(lease.root, { recursive: true, force: true });
     recovered += 1;
   }

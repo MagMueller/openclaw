@@ -4,6 +4,7 @@ import type { AgentToolResult } from "openclaw/plugin-sdk/agent-core";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/core";
 import { truncateSanitizedExternalContent } from "openclaw/plugin-sdk/security-runtime";
 import { DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS } from "openclaw/plugin-sdk/text-utility-runtime";
+import type { BrowserHarnessCloudLeaseStore } from "./browser-harness-cloud-leases.js";
 import {
   BrowserHarnessToolOutputSchema,
   BrowserHarnessToolSchema,
@@ -124,11 +125,13 @@ function protectBrowserHarnessResult(result: AgentToolResult<unknown>): AgentToo
 
 export function createBrowserHarnessTool(opts: {
   exec: Pick<AnyAgentTool, "execute">;
+  cloudLeaseStore: BrowserHarnessCloudLeaseStore;
   getBrowserConfig: () => BrowserConfig | undefined;
   sessionId: string;
   workspaceDir: string;
   allowHostControl?: boolean;
   oneShotCliRun?: boolean;
+  ephemeralRunState?: boolean;
   registerRunCleanup?: (cleanup: (reason: string) => Promise<void>) => void;
   executablePath?: string;
   preflightError?: string;
@@ -201,10 +204,16 @@ export function createBrowserHarnessTool(opts: {
           await cleanup();
           runtime = await prepareBrowserHarnessRuntime({
             browserConfig,
+            cloudLeaseStore: opts.cloudLeaseStore,
             target,
             profile,
             sessionId: runtimeScopeId,
             workspaceDir: opts.workspaceDir,
+            // A default agent-exec run owns an ephemeral SQLite state DB. It
+            // may reuse an orchestrator-owned Cloud daemon, but it must not
+            // create a billable browser whose crash lease disappears with the
+            // temporary DB after SIGKILL.
+            allowCloudProvisioning: opts.ephemeralRunState !== true,
             signal,
             executablePath: opts.executablePath,
           });

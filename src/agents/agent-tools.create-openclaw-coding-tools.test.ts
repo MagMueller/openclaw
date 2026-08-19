@@ -436,8 +436,8 @@ describe("createOpenClawCodingTools", () => {
   });
 
   it("runs exec-specific hooks before Browser Harness can spawn Python", async () => {
-    const beforeToolCall = vi.fn(async (event: { toolName?: string }) =>
-      event.toolName === "exec"
+    const beforeToolCall = vi.fn(async (...args: unknown[]) =>
+      (args[0] as { toolName?: string }).toolName === "exec"
         ? { block: true, blockReason: "exec denied by test policy" }
         : undefined,
     );
@@ -487,7 +487,9 @@ describe("createOpenClawCodingTools", () => {
         reason: "exec denied by test policy",
       }),
     );
-    expect(beforeToolCall.mock.calls.map(([event]) => event.toolName)).toEqual(["browser", "exec"]);
+    expect(
+      beforeToolCall.mock.calls.map(([event]) => (event as { toolName?: string }).toolName),
+    ).toEqual(["browser", "exec"]);
   });
 
   it("adds Tool Search control tools when explicitly requested", () => {

@@ -83,9 +83,12 @@ export function applyLocalSetupWorkspaceConfig(
     options.env,
   );
   const hasRoster = listAgentEntries(baseConfig).length > 0;
-  const defaults = baseConfig.agents?.defaults;
+  // Direct SDK callers shipped before roster materialization may still provide
+  // this raw defaults shape even though the serialized config schema rejects it.
+  const implicitDefaultTools = (baseConfig.agents?.defaults as { tools?: unknown } | undefined)
+    ?.tools;
   const hasAgentScopedToolPolicy =
-    Boolean(defaults && "tools" in defaults && defaults.tools !== undefined) ||
+    implicitDefaultTools !== undefined ||
     listAgentEntries(baseConfig).some((entry) => entry.tools !== undefined);
   const shouldUpdateWorkspace =
     !options.preserveWorkspace &&

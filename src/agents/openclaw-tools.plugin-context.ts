@@ -45,6 +45,8 @@ export type OpenClawPluginToolOptions = {
    * resources alive after emitting their result.
    */
   oneShotCliRun?: boolean;
+  /** True only when durable plugin state disappears after this run exits. */
+  ephemeralRunState?: boolean;
   sandboxBrowserBridgeUrl?: string;
   allowHostBrowserControl?: boolean;
   browserHarnessExec?: Pick<AnyAgentTool, "execute">;
@@ -123,6 +125,7 @@ export function resolveOpenClawPluginToolInputs(params: {
       ),
       sandboxed: options?.sandboxed,
       oneShotCliRun: options?.oneShotCliRun,
+      ephemeralRunState: options?.ephemeralRunState,
       registerRunCleanup: options?.registerRunCleanup,
     },
     allowGatewaySubagentBinding: options?.allowGatewaySubagentBinding,

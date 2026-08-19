@@ -360,9 +360,11 @@ function buildExecRunOverlay(params: {
  * notably exec must never downgrade a configured sandbox to `off`.
  */
 function buildExecConfigDefaults(base: OpenClawConfig): OpenClawConfig {
-  const defaults = base.agents?.defaults;
+  // Direct SDK callers shipped before roster materialization may still provide
+  // this raw defaults shape even though the serialized config schema rejects it.
+  const implicitDefaultTools = (base.agents?.defaults as { tools?: unknown } | undefined)?.tools;
   const hasAgentScopedToolPolicy =
-    Boolean(defaults && "tools" in defaults && defaults.tools !== undefined) ||
+    implicitDefaultTools !== undefined ||
     listAgentEntries(base).some((entry) => entry.tools !== undefined);
   const shouldAddBrowser =
     base.tools?.profile === undefined &&
@@ -733,6 +735,7 @@ export async function agentExecCommand(
           cleanupBundleMcpOnRunEnd: true,
           cleanupCliLiveSessionOnRunEnd: true,
           oneShotCliRun: true,
+          ephemeralRunState: temporaryStateDir !== undefined,
           abortSignal: signalBridge?.signal,
           onModelFallbackExhausted: () => {
             fallbackExhausted = true;

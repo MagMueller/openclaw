@@ -2464,6 +2464,7 @@ describe("agentCliCommand", () => {
       expect(localOpts.cleanupBundleMcpOnRunEnd).toBe(true);
       expect(localOpts.cleanupCliLiveSessionOnRunEnd).toBe(true);
       expect(localOpts.oneShotCliRun).toBe(true);
+      expect(localOpts.ephemeralRunState).toBeUndefined();
       expect(runtime.log).toHaveBeenCalledWith("local");
     });
   });

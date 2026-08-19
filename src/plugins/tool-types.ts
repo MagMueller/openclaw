@@ -71,6 +71,8 @@ export type OpenClawPluginToolContext = {
    * process resources before the command exits.
    */
   oneShotCliRun?: boolean;
+  /** True only when durable plugin state disappears after this run exits. */
+  ephemeralRunState?: boolean;
   /** Register cleanup for run-owned plugin processes and remote resources. */
   registerRunCleanup?: (cleanup: (reason: string) => Promise<void>) => void;
 };

@@ -38,8 +38,11 @@ const setupToolMocks = vi.hoisted(() => ({
 
 vi.mock("./sdk-setup-tools.js", () => setupToolMocks);
 
+import type { BrowserHarnessCloudLeaseStore } from "./browser-harness-cloud-leases.js";
 import { createBrowserHarnessTool } from "./browser-harness-tool.js";
 import { BrowserHarnessToolSchema } from "./browser-harness-tool.schema.js";
+
+const cloudLeaseStore = {} as BrowserHarnessCloudLeaseStore;
 
 describe("createBrowserHarnessTool", () => {
   beforeEach(() => {
@@ -59,6 +62,7 @@ describe("createBrowserHarnessTool", () => {
     }));
     const tool = createBrowserHarnessTool({
       exec: { execute },
+      cloudLeaseStore,
       getBrowserConfig: () => ({ harness: { defaultTarget: "chrome" } }),
       sessionId: "session-1",
       workspaceDir: "/workspace",
@@ -72,7 +76,9 @@ describe("createBrowserHarnessTool", () => {
         sessionId: expect.stringMatching(/^session-1:/),
       }),
     );
-    const execArgs = execute.mock.calls[0]?.[1];
+    const execArgs = (execute.mock.calls[0] as unknown[] | undefined)?.[1] as
+      | { command: string; env?: Record<string, string> }
+      | undefined;
     expect(execArgs).toMatchObject({
       host: "gateway",
       background: false,
@@ -102,6 +108,7 @@ describe("createBrowserHarnessTool", () => {
     }));
     const tool = createBrowserHarnessTool({
       exec: { execute },
+      cloudLeaseStore,
       getBrowserConfig: () => ({}),
       sessionId: "session-output",
       workspaceDir: "/workspace",
@@ -121,14 +128,19 @@ describe("createBrowserHarnessTool", () => {
     const execute = vi.fn(async () => ({ content: [], details: { status: "completed" } }));
     const tool = createBrowserHarnessTool({
       exec: { execute },
+      cloudLeaseStore,
       getBrowserConfig: () => ({ harness: { defaultTarget: "cloud" } }),
       sessionId: "session-2",
       workspaceDir: "/workspace",
       oneShotCliRun: true,
+      ephemeralRunState: true,
     });
 
     await tool.execute("call-2", { code: "print(page_info())" });
 
+    expect(transportMocks.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ allowCloudProvisioning: false, target: "cloud" }),
+    );
     expect(transportMocks.cleanup).toHaveBeenCalledOnce();
   });
 
@@ -137,6 +149,7 @@ describe("createBrowserHarnessTool", () => {
     let runCleanup: ((reason: string) => Promise<void>) | undefined;
     const tool = createBrowserHarnessTool({
       exec: { execute },
+      cloudLeaseStore,
       getBrowserConfig: () => ({ harness: { defaultTarget: "cloud" } }),
       sessionId: "session-run-owned",
       workspaceDir: "/workspace",
@@ -150,6 +163,9 @@ describe("createBrowserHarnessTool", () => {
     await tool.execute("call-b", { code: "print(page_info())" });
 
     expect(transportMocks.prepare).toHaveBeenCalledOnce();
+    expect(transportMocks.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ allowCloudProvisioning: true, target: "cloud" }),
+    );
     expect(transportMocks.cleanup).not.toHaveBeenCalled();
     await runCleanup?.("completion");
     expect(transportMocks.cleanup).toHaveBeenCalledOnce();
@@ -163,6 +179,7 @@ describe("createBrowserHarnessTool", () => {
     }));
     const tool = createBrowserHarnessTool({
       exec: { execute },
+      cloudLeaseStore,
       getBrowserConfig: () => ({}),
       sessionId: "session-shot",
       workspaceDir,
@@ -191,22 +208,37 @@ describe("createBrowserHarnessTool", () => {
     transportMocks.prepare
       .mockResolvedValueOnce({
         executable: "browser-harness",
-        env: {},
+        env: {
+          BH_RUNTIME_DIR: "/tmp/oc-bh/run",
+          BH_TMP_DIR: "/tmp/oc-bh/tmp",
+          BU_NAME: "oc_session",
+          BH_TELEMETRY: "0",
+          BROWSER_HARNESS_TELEMETRY: "0",
+          ANONYMIZED_TELEMETRY: "0",
+        },
         name: "oc_session",
         target: "profile",
         profile: "work",
         cleanup: transportMocks.cleanup,
-      })
+      } as Awaited<ReturnType<typeof transportMocks.prepare>> & { profile: string })
       .mockResolvedValueOnce({
         executable: "browser-harness",
-        env: {},
+        env: {
+          BH_RUNTIME_DIR: "/tmp/oc-bh/run",
+          BH_TMP_DIR: "/tmp/oc-bh/tmp",
+          BU_NAME: "oc_session",
+          BH_TELEMETRY: "0",
+          BROWSER_HARNESS_TELEMETRY: "0",
+          ANONYMIZED_TELEMETRY: "0",
+        },
         name: "oc_session",
         target: "profile",
         profile: "remote",
         cleanup: transportMocks.cleanup,
-      });
+      } as Awaited<ReturnType<typeof transportMocks.prepare>> & { profile: string });
     const tool = createBrowserHarnessTool({
       exec: { execute },
+      cloudLeaseStore,
       getBrowserConfig: () => ({}),
       sessionId: "session-profile",
       workspaceDir: "/workspace",
@@ -230,6 +262,7 @@ describe("createBrowserHarnessTool", () => {
   it("fails closed when sandbox policy blocks host browser control", async () => {
     const tool = createBrowserHarnessTool({
       exec: { execute: vi.fn() },
+      cloudLeaseStore,
       getBrowserConfig: () => ({}),
       sessionId: "session-3",
       workspaceDir: "/workspace",
@@ -245,6 +278,7 @@ describe("createBrowserHarnessTool", () => {
   it("fails closed when browser control is disabled", async () => {
     const tool = createBrowserHarnessTool({
       exec: { execute: vi.fn() },
+      cloudLeaseStore,
       getBrowserConfig: () => ({ enabled: false }),
       sessionId: "session-disabled",
       workspaceDir: "/workspace",

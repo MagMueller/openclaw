@@ -204,6 +204,8 @@ type OpenClawCodingToolsOptions = {
    * resources alive after emitting their result.
    */
   oneShotCliRun?: boolean;
+  /** Durable plugin state is unavailable after this run exits. */
+  ephemeralRunState?: boolean;
   /** Stable run identifier for this agent invocation. */
   runId?: string;
   /** Exact admitted run instance for lifecycle-bound subprocess capabilities. */
@@ -759,6 +761,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             sessionId: options?.sessionId,
             conversationRecall: options?.conversationRecall,
             oneShotCliRun: options?.oneShotCliRun,
+            ephemeralRunState: options?.ephemeralRunState,
             sandboxBrowserBridgeUrl: sandbox?.browser?.bridgeUrl,
             allowHostBrowserControl: sandbox ? sandbox.browserAllowHostControl : true,
             sandboxed: Boolean(sandbox),
@@ -890,6 +893,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             sessionId: options?.sessionId,
             conversationRecall: options?.conversationRecall,
             oneShotCliRun: options?.oneShotCliRun,
+            ephemeralRunState: options?.ephemeralRunState,
             inheritedToolAllowlist,
             inheritedToolDenylist,
             onYield: options?.onYield,
