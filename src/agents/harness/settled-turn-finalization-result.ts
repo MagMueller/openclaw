@@ -24,6 +24,9 @@ const ALLOWED_SETTLED_FINALIZATION_RESULT_KEYS = new Set([
   "diagnosticTrace",
 ]);
 
+const SETTLED_TURN_FINALIZATION_IDLE_TIMEOUT_MESSAGE =
+  "Settled-turn finalization model stream timed out waiting for output";
+
 function invalidFinalizationResult(
   message: string,
   result: Pick<AgentHarnessSettledTurnFinalizationResult, "usage">,
@@ -115,9 +118,13 @@ export function projectSettledTurnFinalizationAttemptResult(
   });
   const terminalClassification = classifyAgentRunTerminalOutcome(terminalOutcome);
   if (terminalClassification === "timeout" || terminalClassification === "cancellation") {
+    const projectedOutcome =
+      terminal.kind === "timeout" && terminal.source === "idle"
+        ? { ...terminalOutcome, error: SETTLED_TURN_FINALIZATION_IDLE_TIMEOUT_MESSAGE }
+        : terminalOutcome;
     throw new AgentRunTerminalOutcomeError(
-      terminalOutcome.error ?? new Error("Settled-turn finalization was interrupted"),
-      terminalOutcome,
+      projectedOutcome.error ?? new Error("Settled-turn finalization was interrupted"),
+      projectedOutcome,
     );
   }
   if (

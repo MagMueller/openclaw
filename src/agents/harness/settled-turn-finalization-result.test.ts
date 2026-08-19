@@ -163,6 +163,37 @@ describe("assertSettledTurnFinalizationResult", () => {
     }
   });
 
+  it.each([
+    { name: "absent failure detail", failureError: undefined },
+    { name: "Error-valued failure detail", failureError: new Error("raw provider timeout") },
+  ])("surfaces a safe finalizer stream-idle reason with $name", ({ failureError }) => {
+    const idleError = "Settled-turn finalization model stream timed out waiting for output";
+    try {
+      projectSettledTurnFinalizationAttemptResult(
+        successfulAttempt({
+          terminal: {
+            kind: "timeout",
+            phase: "prompt",
+            source: "idle",
+            aborted: true,
+            ...(failureError
+              ? { failure: { source: "prompt" as const, error: failureError } }
+              : {}),
+          },
+        }),
+      );
+      throw new Error("expected timeout");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AgentRunTerminalOutcomeError);
+      expect(error).toHaveProperty("message", idleError);
+      expect((error as AgentRunTerminalOutcomeError).terminalOutcome).toMatchObject({
+        status: "timeout",
+        reason: "hard_timeout",
+        error: idleError,
+      });
+    }
+  });
+
   it("rejects a full attempt that compacted before producing its answer", () => {
     expect(() =>
       projectSettledTurnFinalizationAttemptResult(successfulAttempt({ compactionCount: 1 })),
