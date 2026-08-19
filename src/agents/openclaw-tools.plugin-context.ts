@@ -110,7 +110,7 @@ export function resolveOpenClawPluginToolInputs(params: {
       browser: {
         sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
         allowHostControl: options?.allowHostBrowserControl,
-        harnessExec: options?.browserHarnessExec,
+        ...(options?.browserHarnessExec ? { harnessExec: options.browserHarnessExec } : {}),
       },
       messageChannel: options?.agentChannel,
       agentAccountId: options?.agentAccountId,

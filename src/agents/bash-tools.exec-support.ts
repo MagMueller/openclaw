@@ -1,4 +1,4 @@
-import type { ExecHost } from "../infra/exec-approvals.js";
+import type { ExecAsk, ExecHost, ExecSecurity } from "../infra/exec-approvals.js";
 import { requireValidExecTarget } from "../infra/exec-approvals.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { resolveAgentConfig } from "./agent-scope-config.js";
@@ -54,6 +54,22 @@ export function buildExecForegroundResult(params: {
     noOutputTimedOut: params.outcome.noOutputTimedOut,
     cwd: params.cwd,
   });
+}
+
+export function requireApprovalFreeGatewayExec(params: {
+  required?: boolean;
+  host: ExecHost;
+  security: ExecSecurity;
+  ask: ExecAsk;
+}): void {
+  if (
+    params.required &&
+    (params.host !== "gateway" || params.security !== "full" || params.ask !== "off")
+  ) {
+    throw new Error(
+      `exec requires approval-free gateway authority: host=${params.host} security=${params.security} ask=${params.ask}`,
+    );
+  }
 }
 
 export function resolveExecReviewerDefaults(params: {

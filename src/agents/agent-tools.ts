@@ -672,6 +672,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
           preparedRunEnvironment: undefined,
           operationalRunInstance: undefined,
           strictInlineEval: true,
+          requireApprovalFree: true,
           safeBins: [],
           safeBinProfiles: {},
           allowBackground: false,

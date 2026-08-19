@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { accessSync, constants as fsConstants, realpathSync } from "node:fs";
+import { accessSync, constants as fsConstants, realpathSync, statSync } from "node:fs";
 /**
  * Browser plugin registration helpers. This file keeps registration lazy while
  * advertising Browser tools, services, node-host commands, and audits.
@@ -47,9 +47,10 @@ import {
 } from "./src/browser/system-profile-import-state.js";
 
 const EAGER_BROWSER_CONTROL_SERVICE_ENV = "OPENCLAW_EAGER_BROWSER_CONTROL_SERVER";
+const CLOUD_LEASE_REAP_RETRY_MS = 60_000;
 const MIN_BROWSER_HARNESS_VERSION = [0, 1, 10] as const;
 const logger = createSubsystemLogger("browser");
-const browserHarnessVersionCache = new Map<string, boolean>();
+const browserHarnessVersionCache = new Map<string, { fingerprint: string; supported: boolean }>();
 
 function resolveExecutablePath(command: string): string | null {
   const hasPathSeparator = command.includes("/") || command.includes("\\");
@@ -78,9 +79,17 @@ function resolveExecutablePath(command: string): string | null {
 }
 
 function isSupportedBrowserHarness(executable: string): boolean {
+  let fingerprint: string;
+  try {
+    const stats = statSync(executable);
+    fingerprint = [stats.dev, stats.ino, stats.size, stats.mtimeMs, stats.ctimeMs].join(":");
+  } catch {
+    browserHarnessVersionCache.delete(executable);
+    return false;
+  }
   const cached = browserHarnessVersionCache.get(executable);
-  if (cached !== undefined) {
-    return cached;
+  if (cached?.fingerprint === fingerprint) {
+    return cached.supported;
   }
   const result = spawnSync(executable, ["--version"], {
     encoding: "utf8",
@@ -107,7 +116,7 @@ function isSupportedBrowserHarness(executable: string): boolean {
         (minor > MIN_BROWSER_HARNESS_VERSION[1] ||
           (minor === MIN_BROWSER_HARNESS_VERSION[1] && patch >= MIN_BROWSER_HARNESS_VERSION[2])))),
   );
-  browserHarnessVersionCache.set(executable, supported);
+  browserHarnessVersionCache.set(executable, { fingerprint, supported });
   return supported;
 }
 
@@ -353,6 +362,10 @@ export const browserSecurityAuditCollectors: OpenClawPluginSecurityAuditCollecto
 
 function createLazyBrowserPluginService(): OpenClawPluginService {
   let service: OpenClawPluginService | null = null;
+  let leaseReaperTimer: NodeJS.Timeout | undefined;
+  let leaseReaperPromise: Promise<void> | undefined;
+  let leaseReaperFailed = false;
+  let stopping = false;
   const loadService = async () => {
     if (!service) {
       const { createBrowserPluginService, stopBrowserControlService } =
@@ -361,9 +374,63 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
     }
     return service;
   };
+  const scheduleLeaseReaper = (ctx: Parameters<OpenClawPluginService["start"]>[0]) => {
+    if (stopping || leaseReaperTimer) {
+      return;
+    }
+    leaseReaperTimer = setTimeout(() => {
+      leaseReaperTimer = undefined;
+      void runLeaseReaper(ctx);
+    }, CLOUD_LEASE_REAP_RETRY_MS);
+    leaseReaperTimer.unref?.();
+  };
+  const runLeaseReaper = async (ctx: Parameters<OpenClawPluginService["start"]>[0]) => {
+    if (leaseReaperPromise) {
+      return await leaseReaperPromise;
+    }
+    leaseReaperPromise = (async () => {
+      try {
+        const { hasBrowserHarnessCloudLeases } =
+          await import("./src/browser-harness-cloud-leases.js");
+        if (await hasBrowserHarnessCloudLeases()) {
+          const configuredExecutable =
+            ctx.config.browser?.harness?.executablePath?.trim() || "browser-harness";
+          const executable = resolveExecutablePath(configuredExecutable);
+          if (!executable || !isSupportedBrowserHarness(executable)) {
+            throw new Error(
+              "Browser Harness 0.1.10 or newer is required to recover stale cloud leases",
+            );
+          }
+          const { reconcileBrowserHarnessCloudLeases } =
+            await import("./src/browser-harness-transport.js");
+          const recovered = await reconcileBrowserHarnessCloudLeases({
+            browserConfig: ctx.config.browser,
+            executablePath: executable,
+          });
+          if (recovered > 0) {
+            logger.info(`recovered ${recovered} stale Browser Harness cloud lease(s)`);
+          }
+        }
+        if (leaseReaperFailed) {
+          ctx.serviceHealth?.clearFailure();
+          leaseReaperFailed = false;
+        }
+      } catch (error) {
+        leaseReaperFailed = true;
+        ctx.serviceHealth?.reportFailure(error);
+        logger.warn(`Browser Harness cloud lease recovery failed: ${String(error)}`);
+        scheduleLeaseReaper(ctx);
+      } finally {
+        leaseReaperPromise = undefined;
+      }
+    })();
+    return await leaseReaperPromise;
+  };
   return {
     id: "browser-control",
     start: async (ctx) => {
+      stopping = false;
+      await runLeaseReaper(ctx);
       if (!isTruthyEnvValue(process.env[EAGER_BROWSER_CONTROL_SERVICE_ENV])) {
         return;
       }
@@ -371,6 +438,12 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
       await loaded.start(ctx);
     },
     stop: async (ctx) => {
+      stopping = true;
+      if (leaseReaperTimer) {
+        clearTimeout(leaseReaperTimer);
+        leaseReaperTimer = undefined;
+      }
+      await leaseReaperPromise;
       if (!service) {
         const loadedRuntime = loadBrowserRegistrationRuntimeModule.peek();
         if (!loadedRuntime) {

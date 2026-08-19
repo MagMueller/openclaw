@@ -60,7 +60,6 @@ describe("tool-catalog", () => {
       "session_status",
       "suggest_task",
       "dismiss_task",
-      "browser",
       "screen",
       "dashboard",
       "terminal",

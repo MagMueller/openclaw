@@ -38,6 +38,8 @@ export type ExecToolDefaults = {
   pathPrepend?: string[];
   safeBins?: string[];
   strictInlineEval?: boolean;
+  /** Fail instead of entering an approval flow if runtime host policy is not full/off. */
+  requireApprovalFree?: boolean;
   commandHighlighting?: boolean;
   safeBinTrustedDirs?: string[];
   safeBinProfiles?: Record<string, SafeBinProfileFixture>;

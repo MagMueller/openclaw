@@ -509,7 +509,11 @@ export function resolvePreparedExecEnvironment(params: {
     applyPathPrepend(env, params.defaultPathPrepend);
   }
 
-  if (params.host === "gateway" && params.managedLocalIdentity === false) {
+  if (
+    params.host === "gateway" &&
+    params.managedLocalIdentity === false &&
+    params.environmentMode !== "minimal"
+  ) {
     // Native GitHub identity is the explicit exception to the generic host-secret filter.
     // Exact service-owner scrubs below still win; non-local hosts receive neither value.
     for (const name of ["GH_TOKEN", "GITHUB_TOKEN"] as const) {
@@ -531,10 +535,13 @@ export function resolvePreparedExecEnvironment(params: {
   if (params.secretEgressEnv && params.environmentMode !== "minimal") {
     Object.assign(env, params.secretEgressEnv);
   }
-  const preparedEnv = {
-    ...params.credentialScrubEnv,
-    ...(params.host === "gateway" ? params.localIdentityEnv : undefined),
-  };
+  const preparedEnv =
+    params.environmentMode === "minimal"
+      ? {}
+      : {
+          ...params.credentialScrubEnv,
+          ...(params.host === "gateway" ? params.localIdentityEnv : undefined),
+        };
   // Prepared host values are authoritative over ambient, model, plugin, and store projections.
   Object.assign(env, preparedEnv);
 

@@ -7,6 +7,7 @@ import { TextDecoder } from "node:util";
 import { readByteStreamWithLimit } from "@openclaw/media-core/read-byte-stream-with-limit";
 import { parseStrictNonNegativeInteger } from "@openclaw/normalization-core/number-coercion";
 import { findAgentRunTerminalOutcome } from "../agents/agent-run-terminal-error.js";
+import { listAgentEntries } from "../agents/agent-scope-config.js";
 import type { EmbeddedAgentRunMeta } from "../agents/embedded-agent.js";
 import { isExecutionIdentityCollectionEnabled } from "../audit/audit-config.js";
 import { formatCliCommand } from "../cli/command-format.js";
@@ -358,12 +359,24 @@ function buildExecRunOverlay(params: {
  * operator who configured a tool profile, shell env, or sandbox keeps it;
  * notably exec must never downgrade a configured sandbox to `off`.
  */
-function buildExecConfigDefaults(): OpenClawConfig {
+function buildExecConfigDefaults(base: OpenClawConfig): OpenClawConfig {
+  const defaults = base.agents?.defaults;
+  const hasAgentScopedToolPolicy =
+    Boolean(defaults && "tools" in defaults && defaults.tools !== undefined) ||
+    listAgentEntries(base).some((entry) => entry.tools !== undefined);
+  const shouldAddBrowser =
+    base.tools?.profile === undefined &&
+    base.tools?.alsoAllow === undefined &&
+    !hasAgentScopedToolPolicy;
   return {
     env: { shellEnv: { enabled: false } },
     agents: { defaults: { sandbox: { mode: "off" } } },
     tools: {
       profile: "coding",
+      // A one-shot local coding run already grants full Gateway exec. Add the
+      // composite browser capability explicitly without expanding every
+      // existing installation that selected the shared coding profile.
+      ...(shouldAddBrowser ? { alsoAllow: ["browser"] } : {}),
       fs: { workspaceOnly: true },
       // No `exec.host`: the default `auto` already resolves to the gateway when
       // no sandbox is configured, and pinning `gateway` here would route
@@ -430,7 +443,7 @@ export function buildExecRunConfig(params: {
 }): OpenClawConfig {
   const opts = params.opts ?? {};
   const base = stripInheritedAgentLocations(params.base);
-  const withDefaults = mergeDeep(buildExecConfigDefaults(), base) as OpenClawConfig;
+  const withDefaults = mergeDeep(buildExecConfigDefaults(base), base) as OpenClawConfig;
   return mergeDeep(
     withDefaults,
     buildExecRunOverlay({ base, cwd: params.cwd, opts }),

@@ -9,6 +9,8 @@ describe("Browser Harness exec environment", () => {
   it("does not inherit ambient Gateway credentials in minimal mode", () => {
     vi.stubEnv("OPENAI_API_KEY", "must-not-reach-browser-python");
     vi.stubEnv("BROWSER_USE_API_KEY", "must-not-reach-browser-python");
+    vi.stubEnv("GH_TOKEN", "must-not-reach-browser-python");
+    vi.stubEnv("GITHUB_TOKEN", "must-not-reach-browser-python");
 
     const { env } = resolvePreparedExecEnvironment({
       execParams: {
@@ -24,6 +26,11 @@ describe("Browser Harness exec environment", () => {
       storeEnv: { STORED_SECRET: "must-not-reach-browser-python" },
       storeSecretEnv: { SECRET_SENTINEL: "must-not-reach-browser-python" },
       secretEgressEnv: { SECRET_EGRESS: "must-not-reach-browser-python" },
+      managedLocalIdentity: false,
+      localIdentityEnv: {
+        GH_CONFIG_DIR: "/private/github-profile",
+        GH_TOKEN: "must-not-reach-browser-python",
+      },
       warnings: [],
       environmentMode: "minimal",
     });
@@ -33,6 +40,9 @@ describe("Browser Harness exec environment", () => {
     expect(env.PATH).toBeTruthy();
     expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.BROWSER_USE_API_KEY).toBeUndefined();
+    expect(env.GH_TOKEN).toBeUndefined();
+    expect(env.GITHUB_TOKEN).toBeUndefined();
+    expect(env.GH_CONFIG_DIR).toBeUndefined();
     expect(env.PLUGIN_SECRET).toBeUndefined();
     expect(env.STORED_SECRET).toBeUndefined();
     expect(env.SECRET_SENTINEL).toBeUndefined();

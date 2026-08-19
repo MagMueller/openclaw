@@ -55,6 +55,7 @@ import {
 import {
   buildExecForegroundResult,
   createExecHostResolver,
+  requireApprovalFreeGatewayExec,
   resolveExecReviewerDefaults,
 } from "./bash-tools.exec-support.js";
 import {
@@ -329,6 +330,12 @@ export function createExecTool(
       if (bypassApprovals) {
         ask = "off";
       }
+      requireApprovalFreeGatewayExec({
+        required: defaults?.requireApprovalFree,
+        host,
+        security,
+        ask,
+      });
       const autoReview = modePolicy.autoReview && ask === modePolicy.ask && !bypassApprovals;
 
       const sandbox = host === "sandbox" ? defaults?.sandbox : undefined;

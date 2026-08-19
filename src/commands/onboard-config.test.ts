@@ -20,6 +20,7 @@ describe("applyLocalSetupWorkspaceConfig", () => {
     expect(result.gateway?.mode).toBe("local");
     expect(result.agents?.defaults?.workspace).toBe("/tmp/workspace");
     expect(result.tools?.profile).toBe("coding");
+    expect(result.tools?.alsoAllow).toEqual(["browser"]);
   });
 
   it("preserves existing dmScope when already configured", () => {
@@ -53,6 +54,23 @@ describe("applyLocalSetupWorkspaceConfig", () => {
     const result = applyLocalSetupWorkspaceConfig(baseConfig, "/tmp/workspace");
 
     expect(result.tools?.profile).toBe("full");
+    expect(result.tools?.alsoAllow).toBeUndefined();
+  });
+
+  it.each([
+    {
+      label: "agent defaults",
+      agents: { defaults: { tools: { profile: "messaging" as const } } },
+    },
+    {
+      label: "named agent",
+      agents: { entries: { main: { tools: { profile: "messaging" as const } } } },
+    },
+  ])("does not add a global browser grant over $label tool policy", ({ agents }) => {
+    const result = applyLocalSetupWorkspaceConfig({ agents }, "/tmp/workspace");
+
+    expect(result.tools?.profile).toBe("coding");
+    expect(result.tools?.alsoAllow).toBeUndefined();
   });
 
   it("preserves agents.list and bindings on onboard rerun (openclaw#84692)", () => {

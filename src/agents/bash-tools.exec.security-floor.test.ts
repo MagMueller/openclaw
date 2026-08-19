@@ -393,6 +393,23 @@ describe("exec security floor", () => {
     expect(callGatewayTool).not.toHaveBeenCalled();
   });
 
+  it("fails closed instead of approving composite model code when the host floor tightens", async () => {
+    writeFullAskExecApprovalsFixture(tempRoot ?? os.tmpdir());
+    const tool = createExecTool({
+      host: "gateway",
+      security: "full",
+      ask: "off",
+      requireApprovalFree: true,
+    });
+
+    await expect(
+      tool.execute("call-composite-approval-free", { command: "echo must-not-run" }),
+    ).rejects.toThrow(
+      "exec requires approval-free gateway authority: host=gateway security=full ask=always",
+    );
+    expect(callGatewayTool).not.toHaveBeenCalled();
+  });
+
   it("honors normalized auto mode before elevated full bypass", async () => {
     const calls = mockPendingApprovalGateway();
     const autoReviewer = createAskingAutoReviewer();

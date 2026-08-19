@@ -951,6 +951,7 @@ describe("agent exec run config layering", () => {
     expect(config.agents?.defaults?.sandbox?.mode).toBe("off");
     expect(config.env?.shellEnv?.enabled).toBe(false);
     expect(config.tools?.profile).toBe("coding");
+    expect(config.tools?.alsoAllow).toContain("browser");
     expect(config.tools?.fs?.workspaceOnly).toBe(true);
   });
 

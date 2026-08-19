@@ -127,20 +127,23 @@ Browser config changes require a Gateway restart so the plugin can re-register i
 
 ## Agent guidance
 
-`tools.profile: "coding"` includes the browser capability. Later policy layers
-can still narrow it for one agent or spawned sub-agents:
+Fresh local onboarding and `openclaw agent exec` add browser explicitly beside
+the `coding` profile. Existing installations that chose `coding` keep their old
+authority after upgrade; opt in at the profile stage:
 
 ```json5
 {
   tools: {
     profile: "coding",
-    subagents: { tools: { deny: ["browser"] } },
+    alsoAllow: ["browser"],
   },
 }
 ```
 
-The `messaging` profile still omits browser and exec. Add browser explicitly
-only when that channel/sender should have the capability.
+For one existing agent, use `agents.entries.*.tools.alsoAllow: ["browser"]`.
+The `messaging` profile still omits browser and exec; add browser only when that
+channel/sender should have the capability. Later agent/subagent deny policies
+can still remove it.
 
 The model-facing tool has one required field, `code`. Browser Harness helpers
 such as `page_info()`, `new_tab()`, `goto_url()`, `wait_for_load()`, `cdp()`,

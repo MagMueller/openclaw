@@ -83,6 +83,10 @@ export function applyLocalSetupWorkspaceConfig(
     options.env,
   );
   const hasRoster = listAgentEntries(baseConfig).length > 0;
+  const defaults = baseConfig.agents?.defaults;
+  const hasAgentScopedToolPolicy =
+    Boolean(defaults && "tools" in defaults && defaults.tools !== undefined) ||
+    listAgentEntries(baseConfig).some((entry) => entry.tools !== undefined);
   const shouldUpdateWorkspace =
     !options.preserveWorkspace &&
     (options.allowWorkspaceChange || (!hasRoster && !workspaceConflict));
@@ -106,6 +110,11 @@ export function applyLocalSetupWorkspaceConfig(
     tools: {
       ...baseConfig.tools,
       profile: baseConfig.tools?.profile ?? ONBOARDING_DEFAULT_TOOLS_PROFILE,
+      ...(baseConfig.tools?.profile === undefined &&
+      baseConfig.tools?.alsoAllow === undefined &&
+      !hasAgentScopedToolPolicy
+        ? { alsoAllow: ["browser"] }
+        : {}),
     },
   };
 }

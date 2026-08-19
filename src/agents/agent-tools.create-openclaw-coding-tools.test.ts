@@ -2133,7 +2133,7 @@ describe("createOpenClawCodingTools", () => {
     expect(names.has("browser")).toBe(true);
   });
 
-  it("includes browser in the coding profile while later subagent policy can still deny it", () => {
+  it("keeps browser out of coding-profile subagents unless profile-stage alsoAllow adds it", () => {
     const baseConfig = {
       browser: { enabled: true },
       plugins: { entries: { browser: { enabled: true } } },
@@ -2144,7 +2144,7 @@ describe("createOpenClawCodingTools", () => {
       config: baseConfig,
     });
     const codingNames = new Set(codingSubagent.map((tool) => tool.name));
-    expect(codingNames.has("browser")).toBe(true);
+    expect(codingNames.has("browser")).toBe(false);
 
     const subagentAllowOnly = createOpenClawCodingTools({
       sessionKey: "agent:main:subagent:test",
@@ -2156,7 +2156,7 @@ describe("createOpenClawCodingTools", () => {
         },
       } as OpenClawConfig,
     });
-    expect(toolNameList(subagentAllowOnly)).toContain("browser");
+    expect(toolNameList(subagentAllowOnly)).not.toContain("browser");
 
     const profileStageAlsoAllow = createOpenClawCodingTools({
       sessionKey: "agent:main:subagent:test",
@@ -2166,18 +2166,6 @@ describe("createOpenClawCodingTools", () => {
       } as OpenClawConfig,
     });
     expect(toolNameList(profileStageAlsoAllow)).toContain("browser");
-
-    const subagentDeny = createOpenClawCodingTools({
-      sessionKey: "agent:main:subagent:test",
-      config: {
-        ...baseConfig,
-        tools: {
-          profile: "coding",
-          subagents: { tools: { deny: ["browser"] } },
-        },
-      } as OpenClawConfig,
-    });
-    expect(toolNameList(subagentDeny)).not.toContain("browser");
   });
 
   it("can keep message available when a cron route needs it under the coding profile", () => {

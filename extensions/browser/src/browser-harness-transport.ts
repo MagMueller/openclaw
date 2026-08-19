@@ -5,6 +5,12 @@ import { isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import {
+  acquireBrowserHarnessCloudLease,
+  deactivateBrowserHarnessCloudLease,
+  reconcileStaleBrowserHarnessCloudLeases,
+  releaseBrowserHarnessCloudLease,
+} from "./browser-harness-cloud-leases.js";
+import {
   appendCdpPath,
   assertCdpEndpointAllowed,
   fetchJson,
@@ -64,6 +70,61 @@ function baseHarnessEnv(params: {
     ANONYMIZED_TELEMETRY: "0",
     BH_RECORD: "0",
   };
+}
+
+function addCloudBootstrapCredentials(env: Record<string, string>): Record<string, string> {
+  const bootstrapEnv = { ...env };
+  if (process.env.BROWSER_USE_API_KEY) {
+    bootstrapEnv.BROWSER_USE_API_KEY = process.env.BROWSER_USE_API_KEY;
+    return bootstrapEnv;
+  }
+  // Trusted provisioning may use `browser-harness auth login`; keep the model
+  // process on its isolated home while bootstrap/cleanup use the operator's
+  // existing credential location without persisting credentials in a lease.
+  for (const key of [
+    "BH_HOME",
+    "BROWSER_HARNESS_HOME",
+    "BH_CONFIG_DIR",
+    "BH_AUTH_PATH",
+    "XDG_CONFIG_HOME",
+  ]) {
+    const value = process.env[key];
+    if (value) {
+      bootstrapEnv[key] = value;
+    } else {
+      delete bootstrapEnv[key];
+    }
+  }
+  return bootstrapEnv;
+}
+
+export async function reconcileBrowserHarnessCloudLeases(params: {
+  browserConfig: BrowserConfig | undefined;
+  executablePath?: string;
+  signal?: AbortSignal;
+}): Promise<number> {
+  const executable =
+    params.executablePath ??
+    (params.browserConfig?.harness?.executablePath?.trim() || "browser-harness");
+  return await reconcileStaleBrowserHarnessCloudLeases({
+    cleanup: async (lease) => {
+      const staleEnv = addCloudBootstrapCredentials(
+        baseHarnessEnv({
+          homeDir: path.join(lease.root, "h"),
+          runtimeDir: path.join(lease.root, "r"),
+          tmpDir: path.join(lease.root, "t"),
+          workspaceDir: path.join(lease.root, "w"),
+          name: lease.name,
+        }),
+      );
+      await runHarnessBootstrap({
+        executable,
+        env: staleEnv,
+        code: "stop_remote_daemon(NAME)\n",
+        signal: params.signal,
+      });
+    },
+  });
 }
 
 async function runHarnessBootstrap(params: {
@@ -261,6 +322,16 @@ export async function prepareBrowserHarnessRuntime(params: {
       `${EXISTING_DAEMON_ENV}=1 requires an absolute BH_RUNTIME_DIR and a valid BU_NAME`,
     );
   }
+  const executable =
+    params.executablePath ??
+    (params.browserConfig?.harness?.executablePath?.trim() || "browser-harness");
+  if (params.target === "cloud" && !reuseExistingDaemon) {
+    await reconcileBrowserHarnessCloudLeases({
+      browserConfig: params.browserConfig,
+      executablePath: executable,
+      signal: params.signal,
+    });
+  }
   const runtimeDir = reuseExistingDaemon ? existingRuntimeDir! : ownedRuntimeDir;
   await Promise.all(
     [root, ...(reuseExistingDaemon ? [] : [runtimeDir]), tmpDir, homeDir].map(async (dir) => {
@@ -268,9 +339,6 @@ export async function prepareBrowserHarnessRuntime(params: {
     }),
   );
   const name = reuseExistingDaemon ? existingName! : `oc_${slug}`;
-  const executable =
-    params.executablePath ??
-    (params.browserConfig?.harness?.executablePath?.trim() || "browser-harness");
   const publicEnv = baseHarnessEnv({
     homeDir,
     runtimeDir,
@@ -278,7 +346,16 @@ export async function prepareBrowserHarnessRuntime(params: {
     workspaceDir: params.workspaceDir,
     name,
   });
-  const bootstrapEnv = { ...publicEnv };
+  const bootstrapEnv =
+    params.target === "cloud" && !reuseExistingDaemon
+      ? addCloudBootstrapCredentials(publicEnv)
+      : { ...publicEnv };
+  if (reuseExistingDaemon) {
+    // The very first probe must fail closed too. Otherwise a stale eval-owned
+    // socket could make Browser Harness self-heal onto an unrelated local Chrome.
+    bootstrapEnv.BH_REQUIRE_EXISTING_DAEMON = "1";
+  }
+  let cloudLeasePath: string | undefined;
   try {
     if (params.target === "cloud") {
       if (reuseExistingDaemon) {
@@ -289,26 +366,10 @@ export async function prepareBrowserHarnessRuntime(params: {
           signal: params.signal,
         });
       } else {
-        if (process.env.BROWSER_USE_API_KEY) {
-          bootstrapEnv.BROWSER_USE_API_KEY = process.env.BROWSER_USE_API_KEY;
-        } else {
-          // Trusted provisioning may use `browser-harness auth login`; keep the
-          // model process on the isolated home configured in publicEnv.
-          for (const key of [
-            "BH_HOME",
-            "BROWSER_HARNESS_HOME",
-            "BH_CONFIG_DIR",
-            "BH_AUTH_PATH",
-            "XDG_CONFIG_HOME",
-          ]) {
-            const value = process.env[key];
-            if (value) {
-              bootstrapEnv[key] = value;
-            } else {
-              delete bootstrapEnv[key];
-            }
-          }
-        }
+        // The durable lease exists before Browser Use Cloud provisioning. If
+        // OpenClaw is SIGKILLed after the POST, the next process can find and
+        // stop this exact browser without persisting its credential.
+        cloudLeasePath = await acquireBrowserHarnessCloudLease({ root, name });
         await runHarnessBootstrap({
           executable,
           env: bootstrapEnv,
@@ -340,20 +401,26 @@ export async function prepareBrowserHarnessRuntime(params: {
     publicEnv.BH_REQUIRE_EXISTING_DAEMON = "1";
   } catch (error) {
     let cleanupError: unknown;
-    if (!reuseExistingDaemon) {
+    if (!reuseExistingDaemon && (params.target !== "cloud" || cloudLeasePath)) {
       try {
         await runHarnessBootstrap({
           executable,
-          env: publicEnv,
+          env: params.target === "cloud" ? bootstrapEnv : publicEnv,
           ...(params.target === "cloud"
             ? { code: "stop_remote_daemon(NAME)\n" }
             : { args: ["--reload"] }),
         });
+        if (cloudLeasePath) {
+          await releaseBrowserHarnessCloudLease(cloudLeasePath);
+        }
       } catch (stopError) {
         cleanupError = stopError;
       }
     }
     if (cleanupError) {
+      if (cloudLeasePath) {
+        deactivateBrowserHarnessCloudLease(cloudLeasePath);
+      }
       // Keep the runtime/auth handle so an operator or retry can stop the
       // resource. Deleting it here would turn a cleanup failure into an orphan.
       const preparationError = new Error(
@@ -378,14 +445,24 @@ export async function prepareBrowserHarnessRuntime(params: {
         await rm(root, { recursive: true, force: true });
         return;
       }
-      await runHarnessBootstrap({
-        executable,
-        env: publicEnv,
-        ...(params.target === "cloud"
-          ? { code: "stop_remote_daemon(NAME)\n" }
-          : { args: ["--reload"] }),
-      });
-      await rm(root, { recursive: true, force: true });
+      try {
+        await runHarnessBootstrap({
+          executable,
+          env: params.target === "cloud" ? bootstrapEnv : publicEnv,
+          ...(params.target === "cloud"
+            ? { code: "stop_remote_daemon(NAME)\n" }
+            : { args: ["--reload"] }),
+        });
+        if (cloudLeasePath) {
+          await releaseBrowserHarnessCloudLease(cloudLeasePath);
+        }
+        await rm(root, { recursive: true, force: true });
+      } catch (error) {
+        if (cloudLeasePath) {
+          deactivateBrowserHarnessCloudLease(cloudLeasePath);
+        }
+        throw error;
+      }
     },
   };
 }

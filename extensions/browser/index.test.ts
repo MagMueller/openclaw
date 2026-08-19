@@ -281,6 +281,47 @@ describe("browser plugin", () => {
     expect(tool?.name).toBe("browser");
   });
 
+  it.runIf(process.platform !== "win32")(
+    "rechecks Browser Harness support when an executable is upgraded in place",
+    () => {
+      const tempDir = fs.mkdtempSync(
+        path.join(process.env.TMPDIR ?? "/tmp", "openclaw-bh-version-"),
+      );
+      const executable = path.join(tempDir, "browser-harness");
+      const writeVersion = (version: string, suffix = "") => {
+        fs.writeFileSync(
+          executable,
+          `#!/bin/sh\nprintf '%s\\n' 'browser-harness ${version}'\n${suffix}`,
+          { mode: 0o755 },
+        );
+      };
+      try {
+        writeVersion("0.1.9");
+        const { api, registerTool } = createApi();
+        registerBrowserPlugin(api);
+        const factory = mockCallArg(registerTool);
+        if (typeof factory !== "function") {
+          throw new Error("expected browser plugin to register a tool factory");
+        }
+        const createContext = () => ({
+          config: {
+            browser: { modelEngine: "auto" as const, harness: { executablePath: executable } },
+          },
+          sessionId: "session-version-refresh",
+          workspaceDir: "/workspace",
+          browser: { harnessExec: { execute: vi.fn() } },
+        });
+
+        expect(Array.isArray(factory(createContext()))).toBe(false);
+        writeVersion("0.1.10", ": upgraded\n");
+        expect(fs.readFileSync(executable, "utf8")).toContain("0.1.10");
+        expect(Array.isArray(factory(createContext()))).toBe(true);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("fails loudly for an explicitly required missing Browser Harness", async () => {
     const { api, registerTool } = createApi();
     registerBrowserPlugin(api);
