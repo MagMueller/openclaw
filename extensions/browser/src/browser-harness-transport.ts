@@ -13,6 +13,10 @@ import {
 } from "./browser-harness-cloud-leases.js";
 import { assertStableHarnessWebSocketEndpoint } from "./browser-harness-endpoint.js";
 import {
+  BROWSER_HARNESS_ORCHESTRATOR_EXISTING_DAEMON_ENV,
+  hasBrowserHarnessOrchestratorBinding,
+} from "./browser-harness-orchestrator.js";
+import {
   appendCdpPath,
   assertCdpEndpointAllowed,
   fetchJson,
@@ -30,7 +34,6 @@ const BOOTSTRAP_KILL_GRACE_MS = 2_000;
 const MAX_BOOTSTRAP_OUTPUT_BYTES = 16 * 1024;
 const INSTALL_HINT =
   "Browser Harness is not installed. Run: uv tool install --python 3.12 browser-harness";
-const EXISTING_DAEMON_ENV = "BH_ORCHESTRATOR_EXISTING_DAEMON";
 const DAEMON_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 export type BrowserHarnessTarget = "chrome" | "cloud" | "profile";
@@ -304,7 +307,7 @@ export async function prepareBrowserHarnessRuntime(params: {
   const ownedRuntimeDir = path.join(root, "r");
   const tmpDir = path.join(root, "t");
   const homeDir = path.join(root, "h");
-  const reuseExistingDaemon = params.target === "cloud" && process.env[EXISTING_DAEMON_ENV] === "1";
+  const reuseExistingDaemon = params.target === "cloud" && hasBrowserHarnessOrchestratorBinding();
   const existingRuntimeDir = process.env.BH_RUNTIME_DIR?.trim();
   const existingName = process.env.BU_NAME?.trim();
   if (
@@ -314,7 +317,7 @@ export async function prepareBrowserHarnessRuntime(params: {
       !DAEMON_NAME_PATTERN.test(existingName ?? ""))
   ) {
     throw new Error(
-      `${EXISTING_DAEMON_ENV}=1 requires an absolute BH_RUNTIME_DIR and a valid BU_NAME`,
+      `${BROWSER_HARNESS_ORCHESTRATOR_EXISTING_DAEMON_ENV}=1 requires an absolute BH_RUNTIME_DIR and a valid BU_NAME`,
     );
   }
   if (

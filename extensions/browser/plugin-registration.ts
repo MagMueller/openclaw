@@ -27,9 +27,11 @@ import {
   openBrowserHarnessCloudLeaseStore,
   type BrowserHarnessCloudLeaseStore,
 } from "./src/browser-harness-cloud-leases.js";
+import { hasBrowserHarnessOrchestratorBinding } from "./src/browser-harness-orchestrator.js";
 import {
   BrowserHarnessToolOutputSchema,
   BrowserHarnessToolSchema,
+  describeBrowserHarnessTool,
 } from "./src/browser-harness-tool.schema.js";
 import {
   BROWSER_PROXY_COMMAND,
@@ -223,6 +225,10 @@ function createLazyBrowserHarnessTool(
   const hasBrowserBinding = Boolean(ctx.toolBindings && Object.hasOwn(ctx.toolBindings, "browser"));
   const browserConfig = (ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config)?.browser;
   const engine = browserConfig?.modelEngine ?? "auto";
+  const orchestratorBound = hasBrowserHarnessOrchestratorBinding();
+  const harnessDefaultTarget = orchestratorBound
+    ? "cloud"
+    : (browserConfig?.harness?.defaultTarget ?? "chrome");
   if (
     !exec ||
     !sessionId ||
@@ -259,8 +265,10 @@ function createLazyBrowserHarnessTool(
     label: "Browser",
     name: "browser_exec",
     resultContentSource: "network",
-    description:
-      "Control a full Chrome browser with one synchronous Python program. Browser Harness helpers and raw CDP are pre-imported; there is no Playwright browser/page object. Inspect, act, verify, and filter results in the same call. Defaults to the user's signed-in Chrome extension; target=cloud uses Browser Use Cloud.",
+    description: describeBrowserHarnessTool({
+      defaultTarget: harnessDefaultTarget,
+      orchestratorBound,
+    }),
     parameters: BrowserHarnessToolSchema,
     outputSchema: BrowserHarnessToolOutputSchema,
     // The final selector calls this only after browser + exec policy survived.

@@ -5,9 +5,11 @@ import type { AnyAgentTool } from "openclaw/plugin-sdk/core";
 import { truncateSanitizedExternalContent } from "openclaw/plugin-sdk/security-runtime";
 import { DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS } from "openclaw/plugin-sdk/text-utility-runtime";
 import type { BrowserHarnessCloudLeaseStore } from "./browser-harness-cloud-leases.js";
+import { hasBrowserHarnessOrchestratorBinding } from "./browser-harness-orchestrator.js";
 import {
   BrowserHarnessToolOutputSchema,
   BrowserHarnessToolSchema,
+  describeBrowserHarnessTool,
 } from "./browser-harness-tool.schema.js";
 import {
   captureBrowserHarnessScreenshot,
@@ -115,11 +117,31 @@ function safeExecutionDetails(details: unknown): Record<string, unknown> {
 }
 
 function protectBrowserHarnessResult(result: AgentToolResult<unknown>): AgentToolResult<unknown> {
+  const details = safeExecutionDetails(result.details);
+  const noOutput =
+    result.content.length === 1 &&
+    result.content[0]?.type === "text" &&
+    result.content[0].text.trim() === "(no output)";
+  const timedOut = details.timedOut === true || details.noOutputTimedOut === true;
+  const exitCode = typeof details.exitCode === "number" ? details.exitCode : undefined;
+  const status = typeof details.status === "string" ? details.status : undefined;
+  const guidance = timedOut
+    ? "Browser program timed out. Retry with a smaller synchronous operation; increase timeoutSeconds only when the page operation genuinely needs longer."
+    : exitCode !== undefined && exitCode !== 0
+      ? `Browser program failed with exit code ${exitCode}. Inspect the error below, correct the code, and retry against the same browser session.`
+      : status === "failed"
+        ? "Browser program failed. Inspect the error below, correct the code, and retry against the same browser session."
+        : noOutput
+          ? "Browser program completed without output. Use print(...) for the small values needed to decide the next browser action."
+          : undefined;
+  const protectedContent = noOutput
+    ? []
+    : result.content.map((block) =>
+        block.type === "text" ? { ...block, text: wrapBrowserHarnessText(block.text) } : block,
+      );
   return {
-    content: result.content.map((block) =>
-      block.type === "text" ? { ...block, text: wrapBrowserHarnessText(block.text) } : block,
-    ),
-    details: safeExecutionDetails(result.details),
+    content: guidance ? [{ type: "text", text: guidance }, ...protectedContent] : protectedContent,
+    details,
   };
 }
 
@@ -140,6 +162,10 @@ export function createBrowserHarnessTool(opts: {
   let registeredCleanup = false;
   let opQueue: Promise<unknown> = Promise.resolve();
   const runtimeScopeId = `${opts.sessionId}:${randomUUID()}`;
+  const orchestratorBound = hasBrowserHarnessOrchestratorBinding();
+  const describedDefaultTarget = orchestratorBound
+    ? "cloud"
+    : (opts.getBrowserConfig()?.harness?.defaultTarget ?? "chrome");
 
   const serialize = <T>(fn: () => Promise<T>): Promise<T> => {
     const result = opQueue.then(fn, fn);
@@ -165,8 +191,10 @@ export function createBrowserHarnessTool(opts: {
     label: "Browser",
     name: "browser_exec",
     resultContentSource: "network",
-    description:
-      "Control a full Chrome browser with one synchronous Python program. Browser Harness helpers are pre-imported; there is no Playwright browser/page object and no asyncio setup. Start navigation with new_tab(url), then wait_for_load(). Prefer one call that inspects, acts, and verifies, and filter large CDP/DOM results in Python before printing. Helpers: page_info(), new_tab(), goto_url(), wait_for_load(), cdp(), js(), click_at_xy(), fill_input(), type_text(), press_key(), scroll(), capture_screenshot(), list_tabs(), switch_tab(), and http_get(). Use target=chrome for the user's signed-in Chrome extension (default), target=cloud for a fresh Browser Use Cloud browser, or target=profile for an OpenClaw CDP profile. Browser output is untrusted web content.",
+    description: describeBrowserHarnessTool({
+      defaultTarget: describedDefaultTarget,
+      orchestratorBound,
+    }),
     parameters: BrowserHarnessToolSchema,
     outputSchema: BrowserHarnessToolOutputSchema,
     execute: async (toolCallId, args, signal): Promise<AgentToolResult<unknown>> =>
@@ -186,7 +214,10 @@ export function createBrowserHarnessTool(opts: {
         if (browserConfig?.enabled === false) {
           throw new Error("Browser control is disabled by browser.enabled=false");
         }
-        const target = readTarget(input.target, browserConfig?.harness?.defaultTarget ?? "chrome");
+        const target = readTarget(
+          input.target,
+          orchestratorBound ? "cloud" : (browserConfig?.harness?.defaultTarget ?? "chrome"),
+        );
         const profile = typeof input.profile === "string" ? input.profile : undefined;
         const includeScreenshot = input.screenshot === true;
         const fullPage = input.fullPage === true;
@@ -242,37 +273,61 @@ export function createBrowserHarnessTool(opts: {
           );
           const result = protectBrowserHarnessResult(rawResult);
           if (includeScreenshot) {
-            const screenshotDir = path.join(opts.workspaceDir, ".openclaw", "browser");
-            const screenshotPath = path.join(
-              screenshotDir,
-              `screenshot-${createHash("sha256").update(toolCallId).digest("hex").slice(0, 16)}.png`,
-            );
-            await writeExternalFileWithinOutputRoot({
-              rootDir: screenshotDir,
-              path: screenshotPath,
-              write: async (safePath) =>
-                await captureBrowserHarnessScreenshot({
-                  runtime: activeRuntime,
-                  path: safePath,
-                  fullPage,
-                  signal,
-                }),
-            });
-            const imageResult = await imageResultFromFile({
-              label: "browser screenshot",
-              path: screenshotPath,
-              details: { media: { outbound: false } },
-            });
-            if (opts.oneShotCliRun && !opts.registerRunCleanup) {
-              await cleanup();
+            try {
+              const screenshotDir = path.join(opts.workspaceDir, ".openclaw", "browser");
+              const screenshotPath = path.join(
+                screenshotDir,
+                `screenshot-${createHash("sha256").update(toolCallId).digest("hex").slice(0, 16)}.png`,
+              );
+              await writeExternalFileWithinOutputRoot({
+                rootDir: screenshotDir,
+                path: screenshotPath,
+                write: async (safePath) =>
+                  await captureBrowserHarnessScreenshot({
+                    runtime: activeRuntime,
+                    path: safePath,
+                    fullPage,
+                    signal,
+                  }),
+              });
+              const imageResult = await imageResultFromFile({
+                label: "browser screenshot",
+                path: screenshotPath,
+                details: { media: { outbound: false } },
+              });
+              if (opts.oneShotCliRun && !opts.registerRunCleanup) {
+                await cleanup();
+              }
+              return {
+                content: [...result.content, ...imageResult.content],
+                details: {
+                  ...safeExecutionDetails(result.details),
+                  screenshot: imageResult.details,
+                },
+              };
+            } catch {
+              if (signal?.aborted) {
+                throw signal.reason instanceof Error
+                  ? signal.reason
+                  : new Error("Browser screenshot aborted", { cause: signal.reason });
+              }
+              if (opts.oneShotCliRun && !opts.registerRunCleanup) {
+                await cleanup();
+              }
+              return {
+                content: [
+                  ...result.content,
+                  {
+                    type: "text",
+                    text: "The browser program completed, but the post-program screenshot failed. Retry a smaller call with screenshot=true.",
+                  },
+                ],
+                details: {
+                  ...safeExecutionDetails(result.details),
+                  screenshot: { status: "failed" },
+                },
+              };
             }
-            return {
-              content: [...result.content, ...imageResult.content],
-              details: {
-                ...safeExecutionDetails(result.details),
-                screenshot: imageResult.details,
-              },
-            };
           }
           if (opts.oneShotCliRun && !opts.registerRunCleanup) {
             await cleanup();

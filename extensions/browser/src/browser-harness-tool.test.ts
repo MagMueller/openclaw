@@ -47,6 +47,7 @@ const cloudLeaseStore = {} as BrowserHarnessCloudLeaseStore;
 describe("createBrowserHarnessTool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("emits a provider-safe flat target enum", () => {
@@ -101,6 +102,73 @@ describe("createBrowserHarnessTool", () => {
     expect(JSON.stringify(result.details)).not.toContain("aggregated");
   });
 
+  it("reuses a trusted orchestrator Cloud binding when target is omitted", async () => {
+    vi.stubEnv("BH_ORCHESTRATOR_EXISTING_DAEMON", "1");
+    const execute = vi.fn(async () => ({ content: [], details: { status: "completed" } }));
+    const tool = createBrowserHarnessTool({
+      exec: { execute },
+      cloudLeaseStore,
+      getBrowserConfig: () => ({ harness: { defaultTarget: "chrome" } }),
+      sessionId: "session-orchestrated",
+      workspaceDir: "/workspace",
+    });
+
+    await tool.execute("call-default", { code: "print(page_info())" });
+    await tool.execute("call-explicit-cloud", {
+      code: "print(page_info())",
+      target: "cloud",
+    });
+
+    expect(transportMocks.prepare).toHaveBeenCalledOnce();
+    expect(transportMocks.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ target: "cloud" }),
+    );
+    expect(tool.description).toContain("already bound to the orchestrator-owned Browser Use Cloud");
+  });
+
+  it("honors an explicit target over a trusted orchestrator Cloud binding", async () => {
+    vi.stubEnv("BH_ORCHESTRATOR_EXISTING_DAEMON", "1");
+    const execute = vi.fn(async () => ({ content: [], details: { status: "completed" } }));
+    const tool = createBrowserHarnessTool({
+      exec: { execute },
+      cloudLeaseStore,
+      getBrowserConfig: () => ({}),
+      sessionId: "session-explicit-target",
+      workspaceDir: "/workspace",
+    });
+
+    await tool.execute("call-explicit", {
+      code: "print(page_info())",
+      target: "chrome",
+    });
+
+    expect(transportMocks.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ target: "chrome" }),
+    );
+  });
+
+  it.each([
+    {
+      target: "cloud" as const,
+      expected: "run-scoped Browser Use Cloud browser",
+    },
+    {
+      target: "profile" as const,
+      expected: "configured OpenClaw CDP profile",
+    },
+  ])("describes a configured $target default without claiming an orchestrator binding", (test) => {
+    const tool = createBrowserHarnessTool({
+      exec: { execute: vi.fn() },
+      cloudLeaseStore,
+      getBrowserConfig: () => ({ harness: { defaultTarget: test.target } }),
+      sessionId: `session-described-${test.target}`,
+      workspaceDir: "/workspace",
+    });
+
+    expect(tool.description).toContain(test.expected);
+    expect(tool.description).not.toContain("orchestrator-owned");
+  });
+
   it("defangs media directives and caps browser-controlled output", async () => {
     const execute = vi.fn(async () => ({
       content: [{ type: "text" as const, text: `MEDIA:/tmp/leak.png\n${"x".repeat(200_000)}` }],
@@ -122,6 +190,47 @@ describe("createBrowserHarnessTool", () => {
     expect(text).toContain("[truncated");
     expect(text.length).toBeLessThanOrEqual(64_000);
     expect(result.details).toEqual({ status: "completed", exitCode: 0, durationMs: 12 });
+  });
+
+  it("turns generic exec outcomes into actionable browser feedback", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        content: [{ type: "text" as const, text: "(no output)" }],
+        details: { status: "completed", exitCode: 0 },
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: "text" as const, text: "Traceback: failed" }],
+        details: { status: "completed", exitCode: 1 },
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: "text" as const, text: "Command timed out." }],
+        details: { status: "failed", timedOut: true },
+      });
+    const tool = createBrowserHarnessTool({
+      exec: { execute },
+      cloudLeaseStore,
+      getBrowserConfig: () => ({}),
+      sessionId: "session-feedback",
+      workspaceDir: "/workspace",
+    });
+
+    const noOutput = await tool.execute("call-no-output", { code: "page_info()" });
+    const failed = await tool.execute("call-failed", { code: "raise RuntimeError()" });
+    const timedOut = await tool.execute("call-timeout", { code: "wait_for_load()" });
+
+    expect(noOutput.content).toEqual([
+      expect.objectContaining({ text: expect.stringContaining("Use print(...)") }),
+    ]);
+    expect(failed.content[0]).toMatchObject({
+      text: expect.stringContaining("Browser program failed with exit code 1"),
+    });
+    expect(failed.content[1]).toMatchObject({
+      text: expect.stringContaining("EXTERNAL_UNTRUSTED_CONTENT"),
+    });
+    expect(timedOut.content[0]).toMatchObject({
+      text: expect.stringContaining("Browser program timed out"),
+    });
   });
 
   it("cleans up a one-shot cloud browser after execution", async () => {
@@ -198,6 +307,74 @@ describe("createBrowserHarnessTool", () => {
       expect(result.content).toEqual(
         expect.arrayContaining([expect.objectContaining({ type: "image", mimeType: "image/png" })]),
       );
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves successful browser output when the optional screenshot fails", async () => {
+    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), "openclaw-browser-harness-test-"));
+    const execute = vi.fn(async () => ({
+      content: [{ type: "text" as const, text: "primary observation" }],
+      details: { status: "completed", exitCode: 0 },
+    }));
+    transportMocks.screenshot.mockRejectedValueOnce(
+      new Error("sensitive-cdp-endpoint screenshot timeout"),
+    );
+    const tool = createBrowserHarnessTool({
+      exec: { execute },
+      cloudLeaseStore,
+      getBrowserConfig: () => ({}),
+      sessionId: "session-shot-failure",
+      workspaceDir,
+      oneShotCliRun: true,
+    });
+
+    try {
+      const result = await tool.execute("call-shot-failure", {
+        code: 'print("primary observation")',
+        screenshot: true,
+      });
+      const serialized = JSON.stringify(result);
+
+      expect(serialized).toContain("primary observation");
+      expect(serialized).toContain("post-program screenshot failed");
+      expect(serialized).not.toContain("sensitive-cdp-endpoint");
+      expect(result.details).toMatchObject({ screenshot: { status: "failed" } });
+      expect(transportMocks.cleanup).toHaveBeenCalledOnce();
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves cancellation identity when screenshot capture fails", async () => {
+    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), "openclaw-browser-harness-test-"));
+    const cancellation = new Error("cancelled by caller");
+    const controller = new AbortController();
+    controller.abort(cancellation);
+    transportMocks.screenshot.mockRejectedValueOnce(new Error("sensitive screenshot error"));
+    const tool = createBrowserHarnessTool({
+      exec: {
+        execute: vi.fn(async () => ({
+          content: [{ type: "text" as const, text: "primary observation" }],
+          details: { status: "completed" },
+        })),
+      },
+      cloudLeaseStore,
+      getBrowserConfig: () => ({}),
+      sessionId: "session-shot-cancel",
+      workspaceDir,
+    });
+
+    try {
+      await expect(
+        tool.execute(
+          "call-shot-cancel",
+          { code: 'print("primary observation")', screenshot: true },
+          controller.signal,
+        ),
+      ).rejects.toBe(cancellation);
+      expect(transportMocks.cleanup).toHaveBeenCalledOnce();
     } finally {
       await rm(workspaceDir, { recursive: true, force: true });
     }
