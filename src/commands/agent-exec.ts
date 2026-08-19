@@ -362,7 +362,9 @@ function buildExecRunOverlay(params: {
 function buildExecConfigDefaults(base: OpenClawConfig): OpenClawConfig {
   // Direct SDK callers shipped before roster materialization may still provide
   // this raw defaults shape even though the serialized config schema rejects it.
-  const implicitDefaultTools = (base.agents?.defaults as { tools?: unknown } | undefined)?.tools;
+  const implicitDefaults = base.agents?.defaults;
+  const implicitDefaultTools =
+    implicitDefaults && "tools" in implicitDefaults ? implicitDefaults.tools : undefined;
   const hasAgentScopedToolPolicy =
     implicitDefaultTools !== undefined ||
     listAgentEntries(base).some((entry) => entry.tools !== undefined);
