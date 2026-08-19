@@ -88,11 +88,13 @@ string.
 
 ## Use it
 
-The default model-facing browser engine is Browser Harness. Browser Harness
-runs beside the OpenClaw Gateway; it does **not** run inside the extension or on
-the laptop merely because the extension is installed. OpenClaw terminates the
-extension's authenticated relay, exposes only the extension-authorized CDP tab
-surface on loopback, and gives that scoped connection to Browser Harness.
+Browser Harness is the preferred model-facing engine for eligible runs. When it
+is unavailable or the run is policy-ineligible, OpenClaw retains the native
+browser tool automatically. Browser Harness runs beside the OpenClaw Gateway;
+it does **not** run inside the extension or on the laptop merely because the
+extension is installed. OpenClaw terminates the extension's authenticated
+relay, exposes only the extension-authorized CDP tab surface on loopback, and
+gives that scoped connection to Browser Harness.
 
 ```text
 agent Python -> Browser Harness -> OpenClaw loopback relay
