@@ -208,9 +208,7 @@ export function createOpenClawTools(
     sessionId?: string;
     /** Trusted runtime-only authorization for one bounded cross-conversation recall pass. */
     conversationRecall?: ConversationRecallContext;
-    /** One-shot local CLI runs release plugin-owned resources after their result. */
     oneShotCliRun?: boolean;
-    /** Durable plugin state is unavailable after this run exits. */
     ephemeralRunState?: boolean;
     /**
      * Workspace directory to pass to spawned subagents for inheritance.
@@ -223,8 +221,6 @@ export function createOpenClawTools(
     cwd?: string;
     onYield?: (message: string, acknowledgment?: string) => Promise<void> | void;
     claimYieldCompletion?: () => boolean | Promise<boolean>;
-    /** Allow plugin tools for this tool set to late-bind the gateway subagent. */
-    allowGatewaySubagentBinding?: boolean;
   } & SpawnedToolContext &
     ModelAwareToolContext,
 ): AnyAgentTool[] {

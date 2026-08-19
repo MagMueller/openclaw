@@ -24,6 +24,8 @@ export type SpawnedToolContext = {
   workspaceDir?: string;
   inheritedToolAllowlist?: string[];
   inheritedToolDenylist?: string[];
+  /** Allow plugin tools for this tool set to late-bind the gateway subagent. */
+  allowGatewaySubagentBinding?: boolean;
 };
 
 type NormalizedSpawnedRunMetadata = {

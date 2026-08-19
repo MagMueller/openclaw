@@ -570,15 +570,9 @@ describe("agent exec command composition", () => {
 
     await agentExecCommand("inspect", { cwd: root }, runtime, { runAgent });
 
-    expect(runAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceDir: root,
-        cwd: root,
-        oneShotCliRun: true,
-        ephemeralRunState: true,
-      }),
-      expect.any(Object),
-    );
+    const runOpts = runAgent.mock.calls[0]?.[0];
+    expect(runOpts).toMatchObject({ workspaceDir: root, cwd: root });
+    expect(runOpts).toMatchObject({ oneShotCliRun: true, ephemeralRunState: true });
   });
 
   it("emits the small stable JSON envelope", async () => {
