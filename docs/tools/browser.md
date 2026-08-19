@@ -64,6 +64,12 @@ uv tool install --python 3.12 'browser-harness>=0.1.10'
 browser-harness --version
 ```
 
+The Browser Harness model engine currently requires a macOS or Linux Gateway
+host. A native Windows Gateway keeps the built-in `action`-based browser tool
+even when Browser Harness is installed; managed profiles and the Chrome
+extension remain available through that native path. To use the Harness engine,
+run the Gateway on macOS or Linux.
+
 Install and pair the Chrome extension for the default signed-in-browser path:
 
 ```bash
