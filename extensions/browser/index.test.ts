@@ -260,9 +260,8 @@ describe("browser plugin", () => {
     expect(registrationOptions).toEqual({ hostCapabilities: ["approval-free-exec"] });
     expect(tool.name).toBe("browser");
     expect(tool.description).toContain("Browser Use CLI 3.0");
-    await expect(tool.execute("status-1", { action: "status" })).resolves.toMatchObject({
-      details: { action: "status", orchestratorOwned: true },
-    });
+    expect(tool.hostCapabilityFallback?.name).toBe("browser");
+    expect(tool.hostCapabilityFallback?.description).not.toContain("Browser Use CLI 3.0");
     expect(runtimeApiMocks.createBrowserTool).not.toHaveBeenCalled();
   });
 
