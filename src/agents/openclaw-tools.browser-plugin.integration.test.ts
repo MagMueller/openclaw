@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { AnyAgentTool } from "openclaw/plugin-sdk/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import type { OpenClawConfig } from "../config/config.js";
@@ -20,8 +21,11 @@ import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
 import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
 import { getPluginRuntimeLoadContext } from "../plugins/runtime/load-context.js";
+import { setPluginToolMeta } from "../plugins/tools.js";
 import { activateSecretsRuntimeSnapshot, clearSecretsRuntimeSnapshot } from "../secrets/runtime.js";
 import { createOutboundTestPlugin, createTestRegistry } from "../test-utils/channel-plugins.js";
+import { createOpenClawCodingTools } from "./agent-tools.js";
+import { hasApprovalFreeHostExecAuthority } from "./approval-free-host-exec-authority.js";
 import { getRuntimeAuthProfileStoreCredentialsRevision } from "./auth-profiles/runtime-snapshots.js";
 import { resolveOpenClawPluginToolsForOptions } from "./openclaw-plugin-tools.js";
 import { createOpenClawTools } from "./openclaw-tools.js";
@@ -105,6 +109,137 @@ describe("createOpenClawTools browser plugin integration", () => {
     const tools = resolveOpenClawPluginToolsForOptions({
       options: { config },
       resolvedConfig: config,
+    });
+
+    expect(tools.map((tool) => tool.name)).not.toContain("browser");
+  });
+
+  it("requires full/off host exec authority before minting the capability", () => {
+    expect(
+      hasApprovalFreeHostExecAuthority({
+        mode: "full",
+        security: "full",
+        ask: "off",
+        bypassHostApprovalFloors: true,
+      }),
+    ).toBe(true);
+    expect(
+      hasApprovalFreeHostExecAuthority({
+        mode: "allowlist",
+        security: "allowlist",
+        ask: "off",
+        bypassHostApprovalFloors: true,
+      }),
+    ).toBe(false);
+    expect(
+      hasApprovalFreeHostExecAuthority({
+        mode: "ask",
+        security: "allowlist",
+        ask: "on-miss",
+        bypassHostApprovalFloors: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("activates plugin host exec only after final policy retains both tools", async () => {
+    const cleanups: Array<(reason: string) => Promise<void>> = [];
+    hoisted.resolvePluginTools.mockImplementation((params: unknown) => {
+      const capability = (
+        params as {
+          context?: {
+            hostCapabilities?: { "approval-free-exec"?: Pick<AnyAgentTool, "execute"> };
+          };
+        }
+      ).context?.hostCapabilities?.["approval-free-exec"];
+      if (!capability) {
+        throw new Error("expected approval-free exec capability");
+      }
+      let registrationActive = false;
+      const browser = {
+        label: "Browser",
+        name: "browser",
+        description: "Browser Use CLI fixture",
+        parameters: { type: "object" as const, properties: {} },
+        execute: async () => {
+          if (!registrationActive) {
+            throw new Error("registration capability inactive");
+          }
+          return await capability.execute("nested-exec", {
+            command: "printf host-capability-ok",
+            timeoutSeconds: 5,
+          });
+        },
+      };
+      setPluginToolMeta(browser, {
+        pluginId: "browser",
+        optional: false,
+        hostCapabilities: ["approval-free-exec"],
+        activateHostCapabilities: () => {
+          registrationActive = true;
+        },
+      });
+      return [browser];
+    });
+
+    const tools = createOpenClawCodingTools({
+      workspaceDir: process.cwd(),
+      sessionPermissionPolicy: { root: process.cwd(), mode: "full" },
+      registerRunCleanup: (cleanup) => cleanups.push(cleanup),
+      exec: { mode: "full", security: "full", ask: "off" },
+      config: { tools: { allow: ["exec", "browser"] } },
+    });
+    const browser = tools.find((tool) => tool.name === "browser");
+    if (!browser) {
+      throw new Error("expected browser tool");
+    }
+
+    await expect(browser.execute("browser-1", {})).resolves.toMatchObject({
+      content: [
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("host-capability-ok"),
+        }),
+      ],
+    });
+    expect(cleanups.length).toBeGreaterThanOrEqual(1);
+    await Promise.all(cleanups.map(async (cleanup) => await cleanup("test")));
+    await expect(browser.execute("browser-2", {})).rejects.toThrow(
+      /Approval-free host exec is not active/,
+    );
+  });
+
+  it("removes a host-capability plugin tool when final policy denies exec", () => {
+    hoisted.resolvePluginTools.mockImplementation((params: unknown) => {
+      const capability = (
+        params as {
+          context?: { hostCapabilities?: { "approval-free-exec"?: { execute: unknown } } };
+        }
+      ).context?.hostCapabilities?.["approval-free-exec"];
+      if (!capability) {
+        throw new Error("expected pre-policy capability");
+      }
+      const browser = {
+        label: "Browser",
+        name: "browser",
+        description: "Browser Use CLI fixture",
+        parameters: { type: "object" as const, properties: {} },
+        execute: vi.fn(),
+      };
+      setPluginToolMeta(browser, {
+        pluginId: "browser",
+        optional: false,
+        hostCapabilities: ["approval-free-exec"],
+        activateHostCapabilities: vi.fn(),
+      });
+      return [browser];
+    });
+
+    const tools = createOpenClawCodingTools({
+      workspaceDir: process.cwd(),
+      sessionPermissionPolicy: { root: process.cwd(), mode: "full" },
+      registerRunCleanup: vi.fn(),
+      exec: { mode: "full", security: "full", ask: "off" },
+      config: { tools: { deny: ["exec"] } },
     });
 
     expect(tools.map((tool) => tool.name)).not.toContain("browser");

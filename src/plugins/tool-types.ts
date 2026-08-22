@@ -13,6 +13,14 @@ export type OpenClawPluginActiveModelContext = {
   modelRef?: string;
 };
 
+/** Host-owned capabilities that installed plugins can consume but cannot mint. */
+export type OpenClawPluginHostCapabilities = {
+  /** Arbitrary-command host exec, exposed only under full/off authority. */
+  "approval-free-exec"?: Pick<AnyAgentTool, "execute">;
+};
+
+type OpenClawPluginHostCapabilityName = keyof OpenClawPluginHostCapabilities;
+
 /** Current-turn outbound delivery capability bound to the host-selected route and media policy. */
 export type OpenClawPluginToolDelivery = {
   send: (params: { text?: string; mediaUrl?: string }) => Promise<void>;
@@ -49,6 +57,8 @@ export type OpenClawPluginToolContext = {
     sandboxBridgeUrl?: string;
     allowHostControl?: boolean;
   };
+  /** Inert, registration-scoped host capabilities activated after final tool policy. */
+  hostCapabilities?: OpenClawPluginHostCapabilities;
   messageChannel?: string;
   agentAccountId?: string;
   /** Trusted provider auth availability from the active auth profile store. */
@@ -76,6 +86,8 @@ export type OpenClawPluginToolContext = {
    * process resources before the command exits.
    */
   oneShotCliRun?: boolean;
+  /** Registers cleanup owned by the active run. */
+  registerRunCleanup?: (cleanup: (reason: string) => Promise<void>) => void;
 };
 
 export type OpenClawPluginToolFactory = (
@@ -86,6 +98,8 @@ export type OpenClawPluginToolOptions = {
   name?: string;
   names?: string[];
   optional?: boolean;
+  /** Explicit host capabilities this exact registration is prepared to consume. */
+  hostCapabilities?: readonly OpenClawPluginHostCapabilityName[];
 };
 
 export type OpenClawPluginHookOptions = {
