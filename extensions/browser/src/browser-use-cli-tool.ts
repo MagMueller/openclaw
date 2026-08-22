@@ -69,6 +69,15 @@ function normalizeExecResult(
   return { content, details: { action, ...safeExecDetails(result.details) } };
 }
 
+function isFailedExecResult(result: AgentToolResult<unknown> | undefined): boolean {
+  const details = safeExecDetails(result?.details);
+  return (
+    details.timedOut === true ||
+    details.status === "failed" ||
+    (typeof details.exitCode === "number" && details.exitCode !== 0)
+  );
+}
+
 function readInput(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
@@ -183,7 +192,10 @@ export function createBrowserUseCliTool(opts: {
       const action = typeof input.action === "string" ? input.action : "";
       const timeoutSeconds = readTimeoutSeconds(input.timeoutSeconds);
       if (action === "status" || action === "start") {
-        await run(toolCallId, action, "list_tabs()", timeoutSeconds, signal);
+        const probe = await run(toolCallId, action, "list_tabs()", timeoutSeconds, signal);
+        if (isFailedExecResult(probe)) {
+          return probe;
+        }
         return textResult(
           "Browser Use Cloud is ready. The run orchestrator owns this persistent browser and its cleanup.",
           { action, orchestratorOwned: true },
@@ -237,13 +249,7 @@ export function createBrowserUseCliTool(opts: {
               );
             },
           });
-          const details = safeExecDetails(captureResult?.details);
-          if (
-            captureResult &&
-            (details.timedOut === true ||
-              details.status === "failed" ||
-              (typeof details.exitCode === "number" && details.exitCode !== 0))
-          ) {
+          if (captureResult && isFailedExecResult(captureResult)) {
             return captureResult;
           }
           return await imageResultFromFile({

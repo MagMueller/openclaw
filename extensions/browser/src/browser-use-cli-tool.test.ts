@@ -76,6 +76,30 @@ describe("Browser Use CLI tool", () => {
     },
   );
 
+  it("returns a failed daemon probe and reports ready only after recovery", async () => {
+    const { execute, tool } = await createFixture();
+    execute.mockResolvedValueOnce({
+      content: [{ type: "text", text: "probe failed" }],
+      details: { status: "failed", exitCode: 1, secret: "must-not-leak" },
+    });
+
+    const failed = await tool.execute("status-failed", { action: "status" });
+    expect(failed).toMatchObject({
+      content: [{ type: "text", text: "probe failed" }],
+      details: { action: "status", status: "failed", exitCode: 1 },
+    });
+    expect(failed.details).not.toHaveProperty("secret");
+    await expect(tool.execute("status-recovered", { action: "status" })).resolves.toMatchObject({
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining("Browser Use Cloud is ready"),
+        },
+      ],
+      details: { action: "status", orchestratorOwned: true },
+    });
+  });
+
   it("returns a retained PNG for the screenshot action", async () => {
     const { tool, workspaceDir } = await createFixture();
 
