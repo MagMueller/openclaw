@@ -60,6 +60,8 @@ export type AnyAgentTool = Omit<AgentTool, "execute"> &
     catalogMode?: "direct-only";
     /** Gateway client capabilities required before this tool can be assembled. */
     requiredClientCaps?: string[];
+    /** Same-name capability-free fallback selected only after final tool policy. */
+    hostCapabilityFallback?: AnyAgentTool;
     prepareBeforeToolCallParams?: AgentToolWithMeta<
       TSchema,
       unknown

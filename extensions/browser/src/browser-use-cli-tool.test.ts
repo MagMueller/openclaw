@@ -63,6 +63,19 @@ describe("Browser Use CLI tool", () => {
     await cleanups[0]!("test");
   });
 
+  it.each(["status", "start"] as const)(
+    "validates Browser Harness and the daemon before reporting %s ready",
+    async (action) => {
+      const { execute, tool } = await createFixture();
+
+      await expect(tool.execute(`${action}-1`, { action })).resolves.toMatchObject({
+        details: { action, orchestratorOwned: true },
+      });
+      const params = execute.mock.calls[0]?.[1] as { command?: string };
+      expect(params.command).toContain("list_tabs()");
+    },
+  );
+
   it("returns a retained PNG for the screenshot action", async () => {
     const { tool, workspaceDir } = await createFixture();
 
@@ -85,8 +98,8 @@ describe("Browser Use CLI tool", () => {
       env: { BH_RUNTIME_DIR: "relative", BU_NAME: "bad name" },
     });
 
-    await expect(
-      tool.execute("open-1", { action: "open", url: "https://example.com" }),
-    ).rejects.toThrow(/absolute BH_RUNTIME_DIR and a valid BU_NAME/);
+    await expect(tool.execute("status-1", { action: "status" })).rejects.toThrow(
+      /absolute BH_RUNTIME_DIR and a valid BU_NAME/,
+    );
   });
 });
