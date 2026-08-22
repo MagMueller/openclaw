@@ -1,0 +1,64 @@
+src/agents/agent-tools.ts
+  s_72a8aaac2edf1f::t_b466738fee2823 649-687,762-765,991,999-1007,1010-1014,1016-1024,1079,1092-1097
+  s_72a8aaac2edf1f::t_7a9fc6f76d68e3 816-818
+  s_72a8aaac2edf1f::t_c2fc1e286b7539 1008-1009,1015
+src/plugins/tool-types.ts
+  s_72a8aaac2edf1f::t_5e244fec942850 16-23,60-61,89-90,101-102
+src/plugins/tools.optional.test.ts
+  s_72a8aaac2edf1f::t_eb83ff02f406e1 15
+  s_72a8aaac2edf1f::t_6382fdcabc9035 3398-3400
+  s_72a8aaac2edf1f::t_9014b4e4b041bd 3396-3397,3401-3458
+src/agents/openclaw-tools.plugin-context.ts
+  s_72a8aaac2edf1f::t_5e244fec942850 11,51-52,117,129
+src/agents/openclaw-tools.types.ts
+  s_72a8aaac2edf1f::t_5e244fec942850 9,22
+extensions/browser/src/browser-use-cli-tool.schema.ts
+  s_72a8aaac2edf1f::t_c90965fae6a1b7 21-23
+  s_72a8aaac2edf1f::t_a9505ca1ba7195 1-4,6-20,24-43
+src/agents/openclaw-tools.browser-plugin.integration.test.ts
+  s_72a8aaac2edf1f::t_a2a13bd1b3937f 206-207
+  s_72a8aaac2edf1f::t_1c0a5f61e64bed 5,152,161,172,224
+  s_72a8aaac2edf1f::t_c7ba1701aadbf1 23,26,144-151,153-160,162-171,173-198,205,208-223,225-244
+  s_72a8aaac2edf1f::t_de2465321594d4 130,138-139
+  s_72a8aaac2edf1f::t_1368d92b1dce5c 27,119-129,131-137,140-143,199-204
+src/plugins/tools.ts
+  s_72a8aaac2edf1f::t_c2fc1e286b7539 1626
+  s_72a8aaac2edf1f::t_b62f36cd65dfc3 79-80,108-111,260-292,294-308,1610-1611
+extensions/browser/src/browser-use-cli-tool.test.ts
+  s_72a8aaac2edf1f::t_903c95208d4f33 1-14,16-99
+extensions/browser/plugin-registration.ts
+  s_72a8aaac2edf1f::t_a9505ca1ba7195 47,142-162,305-306,308-312
+  s_72a8aaac2edf1f::t_a466d7b050ff5a 34-37,304,307,313
+src/plugins/registry-types.ts
+  s_72a8aaac2edf1f::t_5e244fec942850 85-87,113
+extensions/browser/index.test.ts
+  s_72a8aaac2edf1f::t_903c95208d4f33 241-268
+  s_72a8aaac2edf1f::t_a466d7b050ff5a 206
+src/agents/approval-free-host-exec-authority.ts
+  s_72a8aaac2edf1f::t_da724c33f36196 1-45
+src/plugins/registry-registrars-tools-hooks.ts
+  s_72a8aaac2edf1f::t_5e244fec942850 243,270
+extensions/browser/src/browser-use-cli-tool.ts
+  s_72a8aaac2edf1f::t_394bd9323ffcbe 66
+  s_72a8aaac2edf1f::t_b4a8f6d5f70903 253
+  s_72a8aaac2edf1f::t_a9505ca1ba7195 1-5,10-19,21-65,67-108,110-116,147-223,262,268-275
+  s_72a8aaac2edf1f::t_5801528e9a5158 6-9,109,133,239,246
+  s_72a8aaac2edf1f::t_5fb5787dfbb87e 20,117-132,134-146,224-238,240,245,247-252,254-261,263-267
+  s_72a8aaac2edf1f::t_79db4f4bc331ed 241-244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f80696d3c499d87b6c36f16c1be3c86fb35134b0",
+  "prompts": {},
+  "sessions": {
+    "s_72a8aaac2edf1f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01757-ec68-7c12-a087-084d485453cb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "MagMueller <mamagnus00@gmail.com>"
+    }
+  }
+}
