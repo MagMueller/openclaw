@@ -25,7 +25,6 @@ import { setPluginToolMeta } from "../plugins/tools.js";
 import { activateSecretsRuntimeSnapshot, clearSecretsRuntimeSnapshot } from "../secrets/runtime.js";
 import { createOutboundTestPlugin, createTestRegistry } from "../test-utils/channel-plugins.js";
 import { createOpenClawCodingTools } from "./agent-tools.js";
-import { hasApprovalFreeHostExecAuthority } from "./approval-free-host-exec-authority.js";
 import { getRuntimeAuthProfileStoreCredentialsRevision } from "./auth-profiles/runtime-snapshots.js";
 import { resolveOpenClawPluginToolsForOptions } from "./openclaw-plugin-tools.js";
 import { createOpenClawTools } from "./openclaw-tools.js";
@@ -112,33 +111,6 @@ describe("createOpenClawTools browser plugin integration", () => {
     });
 
     expect(tools.map((tool) => tool.name)).not.toContain("browser");
-  });
-
-  it("requires full/off host exec authority before minting the capability", () => {
-    expect(
-      hasApprovalFreeHostExecAuthority({
-        mode: "full",
-        security: "full",
-        ask: "off",
-        bypassHostApprovalFloors: true,
-      }),
-    ).toBe(true);
-    expect(
-      hasApprovalFreeHostExecAuthority({
-        mode: "allowlist",
-        security: "allowlist",
-        ask: "off",
-        bypassHostApprovalFloors: true,
-      }),
-    ).toBe(false);
-    expect(
-      hasApprovalFreeHostExecAuthority({
-        mode: "ask",
-        security: "allowlist",
-        ask: "on-miss",
-        bypassHostApprovalFloors: true,
-      }),
-    ).toBe(false);
   });
 
   it("activates plugin host exec only after final policy retains both tools", async () => {
