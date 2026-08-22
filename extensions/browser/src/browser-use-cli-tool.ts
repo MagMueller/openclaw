@@ -183,6 +183,7 @@ export function createBrowserUseCliTool(opts: {
       const action = typeof input.action === "string" ? input.action : "";
       const timeoutSeconds = readTimeoutSeconds(input.timeoutSeconds);
       if (action === "status" || action === "start") {
+        await run(toolCallId, action, "list_tabs()", timeoutSeconds, signal);
         return textResult(
           "Browser Use Cloud is ready. The run orchestrator owns this persistent browser and its cleanup.",
           { action, orchestratorOwned: true },

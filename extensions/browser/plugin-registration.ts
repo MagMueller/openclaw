@@ -304,11 +304,14 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
   const useOrchestratorBrowserUseCli = process.env[BROWSER_HARNESS_ORCHESTRATOR_ENV] === "1";
   api.registerTool(
     ((ctx: OpenClawPluginToolContext) => {
-      if (useOrchestratorBrowserUseCli) {
-        return createLazyBrowserUseCliTool(ctx);
-      }
       const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
-      return createLazyBrowserTool(createBrowserToolOptions(ctx), config);
+      const nativeTool = createLazyBrowserTool(createBrowserToolOptions(ctx), config);
+      if (useOrchestratorBrowserUseCli) {
+        const browserUseCliTool = createLazyBrowserUseCliTool(ctx);
+        browserUseCliTool.hostCapabilityFallback = nativeTool;
+        return browserUseCliTool;
+      }
+      return nativeTool;
     }) as OpenClawPluginToolFactory,
     useOrchestratorBrowserUseCli ? { hostCapabilities: ["approval-free-exec"] } : undefined,
   );

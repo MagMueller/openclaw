@@ -210,7 +210,8 @@ describe("createOpenClawTools browser plugin integration", () => {
     );
   });
 
-  it("removes a host-capability plugin tool when final policy denies exec", () => {
+  it("retains a same-name capability-free fallback when final policy denies exec", async () => {
+    const fallbackExecute = vi.fn(async () => jsonResult({ engine: "native" }));
     hoisted.resolvePluginTools.mockImplementation((params: unknown) => {
       const capability = (
         params as {
@@ -226,6 +227,13 @@ describe("createOpenClawTools browser plugin integration", () => {
         description: "Browser Use CLI fixture",
         parameters: { type: "object" as const, properties: {} },
         execute: vi.fn(),
+        hostCapabilityFallback: {
+          label: "Browser",
+          name: "browser",
+          description: "Native browser fixture",
+          parameters: { type: "object" as const, properties: {} },
+          execute: fallbackExecute,
+        },
       };
       setPluginToolMeta(browser, {
         pluginId: "browser",
@@ -244,7 +252,12 @@ describe("createOpenClawTools browser plugin integration", () => {
       config: { tools: { deny: ["exec"] } },
     });
 
-    expect(tools.map((tool) => tool.name)).not.toContain("browser");
+    const browser = tools.find((tool) => tool.name === "browser");
+    expect(browser).toBeDefined();
+    await expect(browser?.execute("browser-native", {})).resolves.toMatchObject({
+      details: { engine: "native" },
+    });
+    expect(fallbackExecute).toHaveBeenCalledOnce();
   });
 
   it("forwards fsPolicy into plugin tool context", async () => {

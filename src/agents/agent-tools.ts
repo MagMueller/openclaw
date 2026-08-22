@@ -24,7 +24,7 @@ import type {
   PluginHookToolRequesterContext,
 } from "../plugins/hook-types.js";
 import { appendRuntimePluginToolGrant } from "../plugins/tool-grant-allowlist.js";
-import { getPluginToolMeta } from "../plugins/tools.js";
+import { getPluginToolMeta, setPluginToolMeta } from "../plugins/tools.js";
 import { getActiveSecretsRuntimeConfigSnapshot } from "../secrets/runtime-state.js";
 import { GATEWAY_OWNER_ONLY_CORE_TOOLS } from "../security/dangerous-tools.js";
 import type { InputProvenance } from "../sessions/input-provenance.js";
@@ -1004,23 +1004,33 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     availableHostCapabilities.add("approval-free-exec");
   }
   const selectedHostCapabilities = new Set<string>();
-  authorizedTools = authorizedTools.filter((tool) => {
+  authorizedTools = authorizedTools.flatMap((tool) => {
     const meta = getPluginToolMeta(tool);
     const required = meta?.hostCapabilities;
     if (!required || required.length === 0) {
-      return true;
+      return [tool];
     }
     if (
       !meta?.activateHostCapabilities ||
       required.some((capability) => !availableHostCapabilities.has(capability))
     ) {
-      return false;
+      const fallback = tool.hostCapabilityFallback;
+      if (!fallback || fallback.name !== tool.name || !meta) {
+        return [];
+      }
+      const {
+        hostCapabilities: _hostCapabilities,
+        activateHostCapabilities: _activateHostCapabilities,
+        ...fallbackMeta
+      } = meta;
+      setPluginToolMeta(fallback, fallbackMeta);
+      return [fallback];
     }
     meta.activateHostCapabilities(required);
     for (const capability of required) {
       selectedHostCapabilities.add(capability);
     }
-    return true;
+    return [tool];
   });
   if (
     swarmStructuredOutputTool &&
