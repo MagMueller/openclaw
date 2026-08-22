@@ -1,24 +1,17 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../test-support.js";
 import { createBrowserUseCliTool } from "./browser-use-cli-tool.js";
 
 const tinyPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2f7z8AAAAASUVORK5CYII=",
   "base64",
 );
-const tempDirs: string[] = [];
-
-afterEach(async () => {
-  await Promise.all(
-    tempDirs.splice(0).map(async (dir) => await fs.rm(dir, { recursive: true, force: true })),
-  );
-});
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 async function createFixture() {
-  const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "oc-bu-cli-test-"));
-  tempDirs.push(workspaceDir);
+  const workspaceDir = tempDirs.make("oc-bu-cli-test-");
   const cleanups: Array<(reason: string) => Promise<void>> = [];
   const execute = vi.fn(async (_id: string, params: unknown) => {
     const command = (params as { command: string }).command;
@@ -83,8 +76,7 @@ describe("Browser Use CLI tool", () => {
   });
 
   it("fails closed without an exact orchestrator daemon identity", async () => {
-    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "oc-bu-cli-invalid-"));
-    tempDirs.push(workspaceDir);
+    const workspaceDir = tempDirs.make("oc-bu-cli-invalid-");
     const tool = createBrowserUseCliTool({
       exec: { execute: vi.fn() as never },
       workspaceDir,
