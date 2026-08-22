@@ -1,0 +1,42 @@
+extensions/browser/index.test.ts
+  s_72a8aaac2edf1f::t_011a2aa13a197d 3,242-261,263-273,275-293
+extensions/browser/src/browser-use-cli-tool.ts
+  s_72a8aaac2edf1f::t_015bd200f60b99 267-270
+  s_72a8aaac2edf1f::t_bba85a5920dbfb 1,8-13,23,27,29,31-37,39,74-79,82-110,112-134,136-194,196-197,200-231,237-266,271,273-278,284-307,315,320-321,352,358,375,391
+  s_72a8aaac2edf1f::t_5d70db5dc86ed3 3,195,198-199,233-235
+extensions/browser/plugin-registration.ts
+  s_72a8aaac2edf1f::t_45c935d9636187 35-38,147-151,159-160,303-319
+src/agents/agent-tools.ts
+  s_72a8aaac2edf1f::t_1391b659cf270b 650,968-969,971,974-975,977-980,982-983,1039
+extensions/browser/src/browser-use-cli-tool.test.ts
+  s_72a8aaac2edf1f::t_ad9b3bb42191f3 27
+  s_72a8aaac2edf1f::t_02125d307d2a26 145,169,176
+  s_72a8aaac2edf1f::t_e69bdef913edf4 62
+  s_72a8aaac2edf1f::t_a594a189179b41 5-9,19-26,28,33-38,42,44,46,51,63-77,83,88-89,94-101,106,133-144,146-155,157,159-168,170-175,177-181
+src/agents/tools/common.ts
+  s_72a8aaac2edf1f::t_f428c97365e98b 63-64,66-68
+src/agents/openclaw-tools.browser-plugin.integration.test.ts
+  s_72a8aaac2edf1f::t_15bf0e00dc49e6 117-119,125-132,154,156,161,168-169
+src/plugins/tools.optional.test.ts
+  s_72a8aaac2edf1f::t_57ba18be819c03 3396-3399
+  s_72a8aaac2edf1f::t_771a97df2bf3a9 3414-3423,3431-3432
+src/plugins/tools.ts
+  s_72a8aaac2edf1f::t_771a97df2bf3a9 110-117,1580
+  s_72a8aaac2edf1f::t_2d3dd7a691112f 262-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "22c474ffb937216a6b375fb60873ea4957171ac4",
+  "prompts": {},
+  "sessions": {
+    "s_72a8aaac2edf1f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01757-ec68-7c12-a087-084d485453cb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "MagMueller <mamagnus00@gmail.com>"
+    }
+  }
+}
