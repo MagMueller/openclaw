@@ -44,6 +44,7 @@ describe("Browser Use CLI tool", () => {
 
     expect(tool.name).toBe("browser");
     expect(tool.description).toContain("Browser Use CLI 3.0");
+    expect(tool.description).toContain("screenshot first to see the page");
     const result = await tool.execute("open-1", {
       action: "open",
       url: "https://example.com/?q='quoted'",
