@@ -26,6 +26,10 @@ function collectFallback(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
+function collectAlsoAllowTool(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
 async function loadDefaultRuntime(): Promise<RuntimeModule["defaultRuntime"]> {
   return (await import("../../runtime.js")).defaultRuntime;
 }
@@ -141,6 +145,12 @@ ${theme.muted("Docs:")} ${formatDocsLink("/cli/agent", "docs.openclaw.ai/cli/age
     .option("--isolated", "Ignore the ambient config and run against exec defaults only", false)
     .option("--model <provider/model>", "Use an explicit primary model for this run")
     .option("--code-mode <mode>", "Tool mode: direct | auto | code")
+    .option(
+      "--also-allow-tool <name>",
+      "Add a tool to this run's additive allowlist (repeatable)",
+      collectAlsoAllowTool,
+      [],
+    )
     .option("--local-model-lean", "Use the reduced local-model tool surface")
     .option(
       "--thinking <level>",
