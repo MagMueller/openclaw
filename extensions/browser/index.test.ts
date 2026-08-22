@@ -203,6 +203,7 @@ describe("browser plugin", () => {
     registerBrowserPlugin(api);
 
     const factory = mockCallArg(registerTool);
+    expect(mockCallArg(registerTool, 0, 1)).toBeUndefined();
     if (typeof factory !== "function") {
       throw new Error("expected browser plugin to register a tool factory");
     }
@@ -235,6 +236,34 @@ describe("browser plugin", () => {
       },
       toolCapabilities: expect.any(Object),
     });
+  });
+
+  it("selects the orchestrator-bound Browser Use CLI tool with exact host authority", async () => {
+    vi.stubEnv("BH_ORCHESTRATOR_EXISTING_DAEMON", "1");
+    const { api, registerTool } = createApi();
+    registerBrowserPlugin(api);
+
+    const factory = mockCallArg(registerTool);
+    const registrationOptions = mockCallArg(registerTool, 0, 1);
+    if (typeof factory !== "function") {
+      throw new Error("expected browser plugin to register a tool factory");
+    }
+    const tool = factory({
+      workspaceDir: "/tmp/workspace",
+      hostCapabilities: { "approval-free-exec": { execute: vi.fn() } },
+      registerRunCleanup: vi.fn(),
+    });
+    if (!tool || Array.isArray(tool)) {
+      throw new Error("expected a single Browser Use CLI tool");
+    }
+
+    expect(registrationOptions).toEqual({ hostCapabilities: ["approval-free-exec"] });
+    expect(tool.name).toBe("browser");
+    expect(tool.description).toContain("Browser Use CLI 3.0");
+    await expect(tool.execute("status-1", { action: "status" })).resolves.toMatchObject({
+      details: { action: "status", orchestratorOwned: true },
+    });
+    expect(runtimeApiMocks.createBrowserTool).not.toHaveBeenCalled();
   });
 
   it("passes runtime context needed for screenshot image understanding", async () => {

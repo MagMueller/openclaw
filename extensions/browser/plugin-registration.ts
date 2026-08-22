@@ -31,6 +31,10 @@ import {
   createBrowserToolSchema,
   resolveBrowserToolCapabilities,
 } from "./src/browser-tool.schema.js";
+import {
+  BrowserUseCliToolSchema,
+  describeBrowserUseCliTool,
+} from "./src/browser-use-cli-tool.schema.js";
 import { resolveBrowserConfig, resolveProfile } from "./src/browser/config.js";
 import { getBrowserProfileCapabilities } from "./src/browser/profile-capabilities.js";
 import { initializeBrowserSessionTabStore } from "./src/browser/session-tab-store.js";
@@ -40,6 +44,7 @@ import {
 } from "./src/browser/system-profile-import-state.js";
 
 const EAGER_BROWSER_CONTROL_SERVICE_ENV = "OPENCLAW_EAGER_BROWSER_CONTROL_SERVER";
+const BROWSER_HARNESS_ORCHESTRATOR_ENV = "BH_ORCHESTRATOR_EXISTING_DAEMON";
 const logger = createSubsystemLogger("browser");
 
 const loadBrowserRegistrationRuntimeModule = createLazyRuntimeModule(
@@ -130,6 +135,31 @@ function createLazyBrowserTool(
           : { ...opts, toolCapabilities: capabilities },
       );
       return await tool.execute(toolCallId, args, signal, onUpdate);
+    },
+  };
+}
+
+function createLazyBrowserUseCliTool(ctx: OpenClawPluginToolContext): AnyAgentTool {
+  const exec = ctx.hostCapabilities?.["approval-free-exec"];
+  if (!exec || !ctx.workspaceDir || !ctx.registerRunCleanup) {
+    throw new Error("Browser Use CLI requires an approval-free run-scoped host exec capability");
+  }
+  let toolPromise: Promise<AnyAgentTool> | undefined;
+  return {
+    label: "Browser",
+    name: "browser",
+    resultContentSource: "network",
+    description: describeBrowserUseCliTool(),
+    parameters: BrowserUseCliToolSchema,
+    execute: async (toolCallId, args, signal, onUpdate) => {
+      toolPromise ??= import("./src/browser-use-cli-tool.js").then(({ createBrowserUseCliTool }) =>
+        createBrowserUseCliTool({
+          exec,
+          workspaceDir: ctx.workspaceDir!,
+          registerRunCleanup: ctx.registerRunCleanup!,
+        }),
+      );
+      return await (await toolPromise).execute(toolCallId, args, signal, onUpdate);
     },
   };
 }
@@ -271,10 +301,17 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
       maxEntries: 1,
     }),
   );
-  api.registerTool(((ctx: OpenClawPluginToolContext) => {
-    const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
-    return createLazyBrowserTool(createBrowserToolOptions(ctx), config);
-  }) as OpenClawPluginToolFactory);
+  const useOrchestratorBrowserUseCli = process.env[BROWSER_HARNESS_ORCHESTRATOR_ENV] === "1";
+  api.registerTool(
+    ((ctx: OpenClawPluginToolContext) => {
+      if (useOrchestratorBrowserUseCli) {
+        return createLazyBrowserUseCliTool(ctx);
+      }
+      const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
+      return createLazyBrowserTool(createBrowserToolOptions(ctx), config);
+    }) as OpenClawPluginToolFactory,
+    useOrchestratorBrowserUseCli ? { hostCapabilities: ["approval-free-exec"] } : undefined,
+  );
   api.registerCli(
     async ({ program }) => {
       const { registerBrowserCli } = await import("./src/cli/browser-cli.js");
