@@ -1,8 +1,16 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import type { AgentToolResult } from "openclaw/plugin-sdk/agent-core";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/core";
+import { resolveNodeHostExecutable } from "openclaw/plugin-sdk/node-host";
+import {
+  runCommandWithTimeout,
+  type CommandOptions,
+  type SpawnResult,
+} from "openclaw/plugin-sdk/process-runtime";
 import {
   BrowserUseCliToolSchema,
   describeBrowserUseCliTool,
@@ -12,16 +20,23 @@ import { resolvePreferredOpenClawTmpDir } from "./infra/tmp-openclaw-dir.js";
 import { imageResultFromFile } from "./sdk-setup-tools.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 120;
+const PREFLIGHT_TIMEOUT_MS = 5_000;
 const MAX_OUTPUT_CHARS = 30_000;
 const OUTPUT_HEAD_CHARS = 22_000;
 const OUTPUT_TAIL_CHARS = 6_000;
+const MAX_CAPTURE_BYTES = 64 * 1024;
 const DAEMON_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const MINIMUM_BROWSER_HARNESS_VERSION = [0, 1, 10] as const;
 
-type Runtime = { env: Record<string, string> };
+export type BrowserUseCliRuntime = {
+  executable: string;
+  pathEnv: string;
+  lang: string;
+  runtimeDir: string;
+  daemonName: string;
+};
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
+type RunCommand = (argv: string[], options: CommandOptions) => Promise<SpawnResult>;
 
 function pythonStringLiteral(value: string): string {
   return JSON.stringify(value);
@@ -37,45 +52,6 @@ function capOutput(value: string): string {
 
 function textResult(text: string, details: Record<string, unknown>): AgentToolResult<unknown> {
   return { content: [{ type: "text", text }], details };
-}
-
-function safeExecDetails(details: unknown): Record<string, unknown> {
-  if (!details || typeof details !== "object" || Array.isArray(details)) {
-    return {};
-  }
-  const allowed = new Set([
-    "status",
-    "exitCode",
-    "exitSignal",
-    "durationMs",
-    "timedOut",
-    "noOutputTimedOut",
-  ]);
-  return Object.fromEntries(
-    Object.entries(details).filter(([key, value]) => allowed.has(key) && value !== undefined),
-  );
-}
-
-function normalizeExecResult(
-  action: string,
-  result: AgentToolResult<unknown>,
-): AgentToolResult<unknown> {
-  const content = result.content.map((block) =>
-    block.type === "text" ? { ...block, text: capOutput(block.text) } : block,
-  );
-  if (content.every((block) => block.type === "text" && !block.text.trim())) {
-    content.push({ type: "text", text: "(no output — print(...) values you need)" });
-  }
-  return { content, details: { action, ...safeExecDetails(result.details) } };
-}
-
-function isFailedExecResult(result: AgentToolResult<unknown> | undefined): boolean {
-  const details = safeExecDetails(result?.details);
-  return (
-    details.timedOut === true ||
-    details.status === "failed" ||
-    (typeof details.exitCode === "number" && details.exitCode !== 0)
-  );
 }
 
 function readInput(value: unknown): Record<string, unknown> {
@@ -95,91 +71,240 @@ function readTimeoutSeconds(value: unknown): number {
   return Number(value);
 }
 
-function createHarnessCommand(code: string, env: Record<string, string>): string {
-  const assignments = Object.entries(env)
-    .map(([key, value]) => `${key}=${shellQuote(value)}`)
-    .join(" ");
-  return `printf '%s\\n' ${shellQuote(code)} | env -i ${assignments} browser-harness`;
+function parseVersion(value: string): readonly [number, number, number] | undefined {
+  const match = /(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\s|$)/.exec(value.trim());
+  if (!match) {
+    return undefined;
+  }
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function isSupportedVersion(version: readonly [number, number, number]): boolean {
+  for (let index = 0; index < MINIMUM_BROWSER_HARNESS_VERSION.length; index += 1) {
+    const actual = version[index] ?? 0;
+    const minimum = MINIMUM_BROWSER_HARNESS_VERSION[index] ?? 0;
+    if (actual !== minimum) {
+      return actual > minimum;
+    }
+  }
+  return true;
+}
+
+function resolveRuntimeIdentity(
+  env: NodeJS.ProcessEnv,
+): Pick<BrowserUseCliRuntime, "runtimeDir" | "daemonName"> | undefined {
+  const runtimeDir = env.BH_RUNTIME_DIR?.trim();
+  const daemonName = env.BU_NAME?.trim();
+  if (
+    !runtimeDir ||
+    !path.isAbsolute(runtimeDir) ||
+    !daemonName ||
+    !DAEMON_NAME_PATTERN.test(daemonName)
+  ) {
+    return undefined;
+  }
+  return { runtimeDir, daemonName };
+}
+
+function buildRuntimeEnv(params: {
+  runtime: BrowserUseCliRuntime;
+  workspaceDir: string;
+  homeDir: string;
+  tmpDir: string;
+}): Record<string, string> {
+  return {
+    PATH: params.runtime.pathEnv,
+    LANG: params.runtime.lang,
+    HOME: params.homeDir,
+    BH_HOME: params.homeDir,
+    BH_CONFIG_DIR: params.homeDir,
+    BH_AUTH_PATH: path.join(params.homeDir, "auth.json"),
+    BH_RUNTIME_DIR: params.runtime.runtimeDir,
+    BH_TMP_DIR: params.tmpDir,
+    BH_AGENT_WORKSPACE: params.workspaceDir,
+    BU_NAME: params.runtime.daemonName,
+    BH_REQUIRE_EXISTING_DAEMON: "1",
+    BH_TELEMETRY: "0",
+    BROWSER_HARNESS_TELEMETRY: "0",
+    ANONYMIZED_TELEMETRY: "0",
+    BH_RECORD: "0",
+    BH_UPDATE_CHECK: "0",
+    BH_OPEN_LIVE_URL: "0",
+  };
+}
+
+async function withEphemeralRuntimeEnv<T>(params: {
+  runtime: BrowserUseCliRuntime;
+  workspaceDir: string;
+  run: (env: Record<string, string>) => Promise<T>;
+}): Promise<T> {
+  const root = await mkdtemp(path.join(resolvePreferredOpenClawTmpDir(), "oc-bh-cli-"));
+  const homeDir = path.join(root, "home");
+  const tmpDir = path.join(root, "tmp");
+  try {
+    await Promise.all([homeDir, tmpDir].map(async (dir) => await mkdir(dir, { mode: 0o700 })));
+    return await params.run(
+      buildRuntimeEnv({
+        runtime: params.runtime,
+        workspaceDir: params.workspaceDir,
+        homeDir,
+        tmpDir,
+      }),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/** Resolve and verify the exact Browser Harness binary and existing daemon before replacement. */
+export function prepareBrowserUseCliRuntime(params: {
+  workspaceDir: string;
+  env?: NodeJS.ProcessEnv;
+}): BrowserUseCliRuntime | undefined {
+  if (process.platform === "win32") {
+    return undefined;
+  }
+  const env = params.env ?? process.env;
+  const identity = resolveRuntimeIdentity(env);
+  const pathEnv = env.PATH ?? "/usr/local/bin:/usr/bin:/bin";
+  if (!identity) {
+    return undefined;
+  }
+  const resolved = resolveNodeHostExecutable("browser-harness", {
+    env,
+    pathEnv,
+    strategy: "direct",
+  });
+  if (!resolved) {
+    return undefined;
+  }
+  let executable: string;
+  try {
+    executable = realpathSync(resolved.executable);
+  } catch {
+    return undefined;
+  }
+  const runtime: BrowserUseCliRuntime = {
+    executable,
+    pathEnv: resolved.pathEnv ?? pathEnv,
+    lang: env.LANG ?? "C.UTF-8",
+    ...identity,
+  };
+  let root: string | undefined;
+  try {
+    root = mkdtempSync(path.join(resolvePreferredOpenClawTmpDir(), "oc-bh-probe-"));
+    const homeDir = path.join(root, "home");
+    const tmpDir = path.join(root, "tmp");
+    mkdirSync(homeDir, { mode: 0o700 });
+    mkdirSync(tmpDir, { mode: 0o700 });
+    const probeEnv = buildRuntimeEnv({
+      runtime,
+      workspaceDir: params.workspaceDir,
+      homeDir,
+      tmpDir,
+    });
+    const version = spawnSync(executable, ["--version"], {
+      cwd: params.workspaceDir,
+      env: probeEnv,
+      encoding: "utf8",
+      timeout: PREFLIGHT_TIMEOUT_MS,
+      maxBuffer: MAX_CAPTURE_BYTES,
+      windowsHide: true,
+    });
+    const parsedVersion = version.status === 0 ? parseVersion(version.stdout) : undefined;
+    if (!parsedVersion || !isSupportedVersion(parsedVersion)) {
+      return undefined;
+    }
+    const daemon = spawnSync(executable, [], {
+      cwd: params.workspaceDir,
+      env: probeEnv,
+      encoding: "utf8",
+      input: "list_tabs()\n",
+      timeout: PREFLIGHT_TIMEOUT_MS,
+      maxBuffer: MAX_CAPTURE_BYTES,
+      windowsHide: true,
+    });
+    return daemon.status === 0 ? runtime : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    if (root) {
+      try {
+        rmSync(root, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup after a bounded readiness probe.
+      }
+    }
+  }
+}
+
+function normalizeCommandResult(
+  action: string,
+  result: SpawnResult,
+  durationMs: number,
+): AgentToolResult<unknown> {
+  const failed = result.code !== 0 || result.termination !== "exit";
+  const output = failed
+    ? [result.stdout, result.stderr].filter((value) => value.trim()).join("\n")
+    : result.stdout;
+  const text = output.trim()
+    ? capOutput(output)
+    : failed
+      ? "Browser call failed without diagnostic output."
+      : "(no output — print(...) values you need)";
+  return textResult(text, {
+    action,
+    status: failed ? "failed" : "completed",
+    exitCode: result.code,
+    ...(result.signal ? { exitSignal: result.signal } : {}),
+    durationMs,
+    timedOut: result.termination === "timeout",
+    noOutputTimedOut: result.termination === "no-output-timeout",
+  });
+}
+
+function isFailedCommandResult(result: AgentToolResult<unknown> | undefined): boolean {
+  const details = result?.details;
+  return Boolean(
+    details && typeof details === "object" && Reflect.get(details, "status") === "failed",
+  );
 }
 
 export function createBrowserUseCliTool(opts: {
-  exec: Pick<AnyAgentTool, "execute">;
+  runtime: BrowserUseCliRuntime;
   workspaceDir: string;
-  registerRunCleanup: (cleanup: (reason: string) => Promise<void>) => void;
-  env?: NodeJS.ProcessEnv;
+  runCommand?: RunCommand;
 }): AnyAgentTool {
-  const processEnv = opts.env ?? process.env;
-  let runtimePromise: Promise<Runtime> | undefined;
-
-  const ensureRuntime = async (): Promise<Runtime> => {
-    runtimePromise ??= (async () => {
-      const runtimeDir = processEnv.BH_RUNTIME_DIR?.trim();
-      const name = processEnv.BU_NAME?.trim();
-      if (!runtimeDir || !path.isAbsolute(runtimeDir) || !name || !DAEMON_NAME_PATTERN.test(name)) {
-        throw new Error(
-          "BH_ORCHESTRATOR_EXISTING_DAEMON=1 requires an absolute BH_RUNTIME_DIR and a valid BU_NAME",
-        );
-      }
-      const root = await mkdtemp(path.join(resolvePreferredOpenClawTmpDir(), "oc-bh-cli-"));
-      const home = path.join(root, "home");
-      const tmp = path.join(root, "tmp");
-      try {
-        await Promise.all([home, tmp].map(async (dir) => await mkdir(dir, { mode: 0o700 })));
-        opts.registerRunCleanup(async () => {
-          await rm(root, { recursive: true, force: true });
-        });
-        return {
-          env: {
-            PATH: processEnv.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-            LANG: processEnv.LANG ?? "C.UTF-8",
-            HOME: home,
-            BH_HOME: home,
-            BH_CONFIG_DIR: home,
-            BH_AUTH_PATH: path.join(home, "auth.json"),
-            BH_RUNTIME_DIR: runtimeDir,
-            BH_TMP_DIR: tmp,
-            BH_AGENT_WORKSPACE: opts.workspaceDir,
-            BU_NAME: name,
-            BH_REQUIRE_EXISTING_DAEMON: "1",
-            BH_TELEMETRY: "0",
-            BROWSER_HARNESS_TELEMETRY: "0",
-            ANONYMIZED_TELEMETRY: "0",
-            BH_RECORD: "0",
-            BH_UPDATE_CHECK: "0",
-            BH_OPEN_LIVE_URL: "0",
-          },
-        };
-      } catch (error) {
-        await rm(root, { recursive: true, force: true }).catch(() => undefined);
-        throw error;
-      }
-    })();
-    return await runtimePromise;
-  };
-
+  const runCommand = opts.runCommand ?? runCommandWithTimeout;
   const run = async (
-    toolCallId: string,
     action: string,
     code: string,
     timeoutSeconds: number,
     signal?: AbortSignal,
-  ): Promise<AgentToolResult<unknown>> => {
-    const runtime = await ensureRuntime();
-    return normalizeExecResult(
-      action,
-      await opts.exec.execute(
-        `${toolCallId}:browser-use-cli`,
-        {
-          command: createHarnessCommand(code, runtime.env),
-          workdir: opts.workspaceDir,
-          host: "gateway",
-          background: false,
-          timeoutSeconds,
-        },
-        signal,
-      ),
-    );
-  };
+  ): Promise<AgentToolResult<unknown>> =>
+    await withEphemeralRuntimeEnv({
+      runtime: opts.runtime,
+      workspaceDir: opts.workspaceDir,
+      run: async (env) => {
+        const startedAt = Date.now();
+        const result = await runCommand([opts.runtime.executable], {
+          cwd: opts.workspaceDir,
+          input: `${code}\n`,
+          baseEnv: {},
+          env,
+          timeoutMs: timeoutSeconds * 1_000,
+          signal,
+          killProcessTree: true,
+          maxOutputBytes: MAX_CAPTURE_BYTES,
+        });
+        if (signal?.aborted) {
+          throw signal.reason instanceof Error
+            ? signal.reason
+            : new Error("Browser call aborted", { cause: signal.reason });
+        }
+        return normalizeCommandResult(action, result, Date.now() - startedAt);
+      },
+    });
 
   return {
     label: "Browser",
@@ -187,13 +312,13 @@ export function createBrowserUseCliTool(opts: {
     resultContentSource: "network",
     description: describeBrowserUseCliTool(),
     parameters: BrowserUseCliToolSchema,
-    execute: async (toolCallId, args, signal) => {
+    execute: async (_toolCallId, args, signal) => {
       const input = readInput(args);
       const action = typeof input.action === "string" ? input.action : "";
       const timeoutSeconds = readTimeoutSeconds(input.timeoutSeconds);
       if (action === "status" || action === "start") {
-        const probe = await run(toolCallId, action, "list_tabs()", timeoutSeconds, signal);
-        if (isFailedExecResult(probe)) {
+        const probe = await run(action, "list_tabs()", timeoutSeconds, signal);
+        if (isFailedCommandResult(probe)) {
           return probe;
         }
         return textResult(
@@ -213,7 +338,6 @@ export function createBrowserUseCliTool(opts: {
           return textResult("action=open requires url.", { action, error: "missing_url" });
         }
         return await run(
-          toolCallId,
           action,
           `new_tab(${pythonStringLiteral(url)})\nwait_for_load()\nprint(page_info())`,
           timeoutSeconds,
@@ -225,13 +349,13 @@ export function createBrowserUseCliTool(opts: {
         if (!code.trim()) {
           return textResult("action=exec requires code.", { action, error: "missing_code" });
         }
-        return await run(toolCallId, action, code, timeoutSeconds, signal);
+        return await run(action, code, timeoutSeconds, signal);
       }
       if (action === "screenshot") {
         const screenshotDir = path.join(opts.workspaceDir, ".openclaw", "browser");
         const screenshotPath = path.join(
           screenshotDir,
-          `screenshot-${createHash("sha256").update(toolCallId).digest("hex").slice(0, 16)}.png`,
+          `screenshot-${createHash("sha256").update(_toolCallId).digest("hex").slice(0, 16)}.png`,
         );
         const fullPage = input.fullPage === true;
         let captureResult: AgentToolResult<unknown> | undefined;
@@ -241,7 +365,6 @@ export function createBrowserUseCliTool(opts: {
             path: screenshotPath,
             write: async (safePath) => {
               captureResult = await run(
-                toolCallId,
                 action,
                 `capture_screenshot(${pythonStringLiteral(safePath)}, full=${fullPage ? "True" : "False"})`,
                 timeoutSeconds,
@@ -249,7 +372,7 @@ export function createBrowserUseCliTool(opts: {
               );
             },
           });
-          if (captureResult && isFailedExecResult(captureResult)) {
+          if (captureResult && isFailedCommandResult(captureResult)) {
             return captureResult;
           }
           return await imageResultFromFile({
@@ -265,11 +388,7 @@ export function createBrowserUseCliTool(opts: {
           }
           return textResult(
             "The browser screenshot failed. Inspect the page with action=exec, then retry screenshot.",
-            {
-              action,
-              screenshot: "failed",
-              ...safeExecDetails(captureResult?.details),
-            },
+            { action, screenshot: "failed" },
           );
         }
       }

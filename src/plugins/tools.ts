@@ -76,8 +76,6 @@ export type PluginToolMcpMeta = {
 /** Runtime metadata used to trace an agent tool back to its owning plugin registration. */
 type PluginToolMeta = {
   pluginId: string;
-  hostCapabilities?: readonly string[];
-  activateHostCapabilities?: (names: readonly string[]) => void;
   optional: boolean;
   replaySafe?: boolean;
   sideEffecting?: boolean;
@@ -105,13 +103,17 @@ const PLUGIN_TOOL_FACTORY_WARN_FACTORY_MS = 1_000;
 const PLUGIN_TOOL_FACTORY_SUMMARY_LIMIT = 20;
 
 const pluginToolMeta = new WeakMap<AnyAgentTool, PluginToolMeta>();
-type PluginToolHostCapabilityGate = {
-  activate: (names: readonly string[]) => void;
-};
-const pluginToolHostCapabilityGates = new WeakMap<AnyAgentTool, PluginToolHostCapabilityGate>();
 const scopedPluginTools = new WeakMap<AnyAgentTool, Map<string, AnyAgentTool>>();
 const pluginRegistryScopeIds = new WeakMap<PluginRegistry, number>();
 let nextPluginRegistryScopeId = 1;
+
+function canCachePluginToolDescriptor(tool: AnyAgentTool): boolean {
+  try {
+    return tool.descriptorCacheMode !== "live";
+  } catch {
+    return false;
+  }
+}
 
 /** Attaches plugin ownership metadata to a concrete agent tool instance. */
 export function setPluginToolMeta(tool: AnyAgentTool, meta: PluginToolMeta): void {
@@ -257,55 +259,9 @@ function resolvePluginToolFactory(
   pluginRegistry: PluginRegistry | undefined,
   ctx: OpenClawPluginToolContext,
 ) {
-  const requestedHostCapabilities = new Set<string>(entry.hostCapabilities ?? []);
-  const activeHostCapabilities = new Set<string>();
-  const scopedHostCapabilities = ctx.hostCapabilities
-    ? Object.fromEntries(
-        Object.entries(ctx.hostCapabilities)
-          .filter(([name]) => requestedHostCapabilities.has(name))
-          .map(([name, capability]) => [
-            name,
-            {
-              execute: async (
-                toolCallId: string,
-                params: unknown,
-                signal?: AbortSignal,
-                onUpdate?: Parameters<AnyAgentTool["execute"]>[3],
-              ) => {
-                if (!activeHostCapabilities.has(name)) {
-                  throw new Error("Plugin host capability is not active for this tool selection");
-                }
-                return await capability.execute(toolCallId, params, signal, onUpdate);
-              },
-            },
-          ]),
-      )
-    : undefined;
-  const scopedContext: OpenClawPluginToolContext = {
-    ...ctx,
-    hostCapabilities:
-      scopedHostCapabilities && Object.keys(scopedHostCapabilities).length > 0
-        ? scopedHostCapabilities
-        : undefined,
-  };
-  const result = runWithPluginToolScope(entry, pluginRegistry, () =>
-    wrapPluginToolFactoryResult(entry, pluginRegistry, entry.factory(scopedContext)),
+  return runWithPluginToolScope(entry, pluginRegistry, () =>
+    wrapPluginToolFactoryResult(entry, pluginRegistry, entry.factory(ctx)),
   );
-  const gate: PluginToolHostCapabilityGate = {
-    activate: (names) => {
-      for (const name of names) {
-        if (requestedHostCapabilities.has(name)) {
-          activeHostCapabilities.add(name);
-        }
-      }
-    },
-  };
-  for (const tool of Array.isArray(result) ? result : result ? [result] : []) {
-    if (isAgentTool(tool)) {
-      pluginToolHostCapabilityGates.set(tool, gate);
-    }
-  }
-  return result;
 }
 
 function blocksHostRestrictedConversationReadTool(params: {
@@ -1607,8 +1563,6 @@ export function resolvePluginTools(params: {
       });
       pluginToolMeta.set(tool, {
         pluginId: entry.pluginId,
-        hostCapabilities: [...(entry.hostCapabilities ?? [])],
-        activateHostCapabilities: pluginToolHostCapabilityGates.get(tool)?.activate,
         optional,
         replaySafe: isManifestToolReplaySafe({
           manifestPlugin,
@@ -1623,7 +1577,7 @@ export function resolvePluginTools(params: {
           toolName: tool.name,
         }),
       });
-      if (manifestPlugin && (entry.hostCapabilities?.length ?? 0) === 0) {
+      if (manifestPlugin && canCachePluginToolDescriptor(tool)) {
         const capturedDescriptors = capturedDescriptorsByPluginId.get(entry.pluginId) ?? [];
         capturedDescriptors.push(
           capturePluginToolDescriptor({

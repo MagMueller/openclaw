@@ -32,6 +32,11 @@ import {
   resolveBrowserToolCapabilities,
 } from "./src/browser-tool.schema.js";
 import {
+  createBrowserUseCliTool,
+  prepareBrowserUseCliRuntime,
+  type BrowserUseCliRuntime,
+} from "./src/browser-use-cli-tool.js";
+import {
   BrowserUseCliToolSchema,
   describeBrowserUseCliTool,
 } from "./src/browser-use-cli-tool.schema.js";
@@ -139,12 +144,11 @@ function createLazyBrowserTool(
   };
 }
 
-function createLazyBrowserUseCliTool(ctx: OpenClawPluginToolContext): AnyAgentTool {
-  const exec = ctx.hostCapabilities?.["approval-free-exec"];
-  if (!exec || !ctx.workspaceDir || !ctx.registerRunCleanup) {
-    throw new Error("Browser Use CLI requires an approval-free run-scoped host exec capability");
-  }
-  let toolPromise: Promise<AnyAgentTool> | undefined;
+function createLazyBrowserUseCliTool(params: {
+  runtime: BrowserUseCliRuntime;
+  workspaceDir: string;
+}): AnyAgentTool {
+  let tool: AnyAgentTool | undefined;
   return {
     label: "Browser",
     name: "browser",
@@ -152,14 +156,8 @@ function createLazyBrowserUseCliTool(ctx: OpenClawPluginToolContext): AnyAgentTo
     description: describeBrowserUseCliTool(),
     parameters: BrowserUseCliToolSchema,
     execute: async (toolCallId, args, signal, onUpdate) => {
-      toolPromise ??= import("./src/browser-use-cli-tool.js").then(({ createBrowserUseCliTool }) =>
-        createBrowserUseCliTool({
-          exec,
-          workspaceDir: ctx.workspaceDir!,
-          registerRunCleanup: ctx.registerRunCleanup!,
-        }),
-      );
-      return await (await toolPromise).execute(toolCallId, args, signal, onUpdate);
+      tool ??= createBrowserUseCliTool(params);
+      return await tool.execute(toolCallId, args, signal, onUpdate);
     },
   };
 }
@@ -302,19 +300,28 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
     }),
   );
   const useOrchestratorBrowserUseCli = process.env[BROWSER_HARNESS_ORCHESTRATOR_ENV] === "1";
-  api.registerTool(
-    ((ctx: OpenClawPluginToolContext) => {
-      const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
-      const nativeTool = createLazyBrowserTool(createBrowserToolOptions(ctx), config);
-      if (useOrchestratorBrowserUseCli) {
-        const browserUseCliTool = createLazyBrowserUseCliTool(ctx);
-        browserUseCliTool.hostCapabilityFallback = nativeTool;
+  api.registerTool(((ctx: OpenClawPluginToolContext) => {
+    const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
+    const nativeTool = createLazyBrowserTool(createBrowserToolOptions(ctx), config);
+    if (useOrchestratorBrowserUseCli) {
+      nativeTool.descriptorCacheMode = "live";
+      const runtime =
+        ctx.workspaceDir && !ctx.sandboxed
+          ? prepareBrowserUseCliRuntime({ workspaceDir: ctx.workspaceDir })
+          : undefined;
+      if (runtime) {
+        const browserUseCliTool = createLazyBrowserUseCliTool({
+          runtime,
+          workspaceDir: ctx.workspaceDir!,
+        });
+        browserUseCliTool.requiresApprovalFreeHostExec = true;
+        browserUseCliTool.approvalFreeHostExecFallback = nativeTool;
+        browserUseCliTool.descriptorCacheMode = "live";
         return browserUseCliTool;
       }
-      return nativeTool;
-    }) as OpenClawPluginToolFactory,
-    useOrchestratorBrowserUseCli ? { hostCapabilities: ["approval-free-exec"] } : undefined,
-  );
+    }
+    return nativeTool;
+  }) as OpenClawPluginToolFactory);
   api.registerCli(
     async ({ program }) => {
       const { registerBrowserCli } = await import("./src/cli/browser-cli.js");

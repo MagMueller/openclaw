@@ -8,7 +8,6 @@ import {
  * Normalizes workspace, delivery, browser, sandbox, and active-model inputs before plugin tool invocation.
  */
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import type { OpenClawPluginHostCapabilities } from "../plugins/tool-types.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.shared.js";
 import { resolveAgentWorkspaceDir, resolveSessionAgentIds } from "./agent-scope.js";
 import type { ConversationRecallContext } from "./conversation-recall.types.js";
@@ -48,8 +47,6 @@ export type OpenClawPluginToolOptions = {
    * resources alive after emitting their result.
    */
   oneShotCliRun?: boolean;
-  pluginHostCapabilities?: OpenClawPluginHostCapabilities;
-  registerRunCleanup?: (cleanup: (reason: string) => Promise<void>) => void;
   sandboxBrowserBridgeUrl?: string;
   allowHostBrowserControl?: boolean;
   sandboxed?: boolean;
@@ -114,7 +111,6 @@ export function resolveOpenClawPluginToolInputs(params: {
         sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
         allowHostControl: options?.allowHostBrowserControl,
       },
-      hostCapabilities: options?.pluginHostCapabilities,
       messageChannel: options?.agentChannel,
       agentAccountId: options?.agentAccountId,
       deliveryContext,
@@ -126,7 +122,6 @@ export function resolveOpenClawPluginToolInputs(params: {
       ),
       sandboxed: options?.sandboxed,
       oneShotCliRun: options?.oneShotCliRun,
-      registerRunCleanup: options?.registerRunCleanup,
     },
     allowGatewaySubagentBinding: options?.allowGatewaySubagentBinding,
   };

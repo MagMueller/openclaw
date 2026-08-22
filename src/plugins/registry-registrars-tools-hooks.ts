@@ -240,7 +240,6 @@ export function createToolHookRegistrars(state: PluginRegistryState) {
     }
     const names = [...(opts?.names ?? []), ...(opts?.name ? [opts.name] : [])];
     const optional = opts?.optional === true;
-    const hostCapabilities = [...new Set(opts?.hostCapabilities ?? [])];
     const factory: OpenClawPluginToolFactory =
       typeof tool === "function" ? tool : (_ctx: OpenClawPluginToolContext) => tool;
     if (typeof tool !== "function") {
@@ -267,7 +266,6 @@ export function createToolHookRegistrars(state: PluginRegistryState) {
       names: normalized,
       declaredNames,
       optional,
-      hostCapabilities,
       origin: record.origin,
       source: record.source,
       rootDir: record.rootDir,

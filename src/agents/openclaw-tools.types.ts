@@ -6,7 +6,6 @@ import type { ChatType } from "../channels/chat-type.js";
 import type { InboundEventKind } from "../channels/inbound-event/kind.js";
 import type { ConversationReadInvocationOrigin } from "../channels/plugins/conversation-read-origin.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import type { OpenClawPluginHostCapabilities } from "../plugins/tool-types.js";
 import type { SkillWorkshopRunOptions } from "../skills/workshop/types.js";
 import type { HookContext } from "./agent-tools.before-tool-call.js";
 import type { ConversationRecallContext } from "./conversation-recall.types.js";
@@ -19,7 +18,6 @@ import type { CronToolOptions } from "./tools/cron-tool.types.js";
 export type OpenClawToolsOptions = {
   sandboxBrowserBridgeUrl?: string;
   allowHostBrowserControl?: boolean;
-  pluginHostCapabilities?: OpenClawPluginHostCapabilities;
   agentSessionKey?: string;
   toolBindings?: Readonly<Record<string, unknown>>;
   /** Durable store key when it differs from the sandbox/policy session key. */

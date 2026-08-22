@@ -12,8 +12,10 @@ import {
 import type { OpenClawPluginApi } from "./runtime-api.js";
 import setupPlugin from "./setup-api.js";
 import { BrowserToolOutputSchema } from "./src/browser-tool.schema.js";
+import { useAutoCleanupTempDirTracker } from "./test-support.js";
 
 type BrowserAutoEnableProbe = Parameters<OpenClawPluginApi["registerAutoEnableProbe"]>[0];
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 const runtimeApiMocks = vi.hoisted(() => ({
   createBrowserPluginService: vi.fn(() => ({ id: "browser-control", start: vi.fn() })),
@@ -238,32 +240,58 @@ describe("browser plugin", () => {
     });
   });
 
-  it("selects the orchestrator-bound Browser Use CLI tool with exact host authority", async () => {
-    vi.stubEnv("BH_ORCHESTRATOR_EXISTING_DAEMON", "1");
-    const { api, registerTool } = createApi();
-    registerBrowserPlugin(api);
+  it.runIf(process.platform !== "win32")(
+    "replaces native only after the pinned orchestrator daemon preflight recovers",
+    async () => {
+      const root = tempDirs.make("oc-browser-plugin-preflight-");
+      try {
+        const binDir = path.join(root, "bin");
+        const executable = path.join(binDir, "browser-harness");
+        const readyPath = path.join(root, "ready");
+        fs.mkdirSync(binDir, { recursive: true });
+        fs.writeFileSync(
+          executable,
+          `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '0.1.10\\n'; exit 0; fi\n[ -f ${JSON.stringify(readyPath)} ] || exit 9\ninput=$(cat)\n[ "$input" = "list_tabs()" ]\n`,
+          { mode: 0o755 },
+        );
+        vi.stubEnv("BH_ORCHESTRATOR_EXISTING_DAEMON", "1");
+        vi.stubEnv("BH_RUNTIME_DIR", path.join(root, "runtime"));
+        vi.stubEnv("BU_NAME", "eval_browser");
+        vi.stubEnv("PATH", `${binDir}:/usr/bin:/bin`);
+        const { api, registerTool } = createApi();
+        registerBrowserPlugin(api);
 
-    const factory = mockCallArg(registerTool);
-    const registrationOptions = mockCallArg(registerTool, 0, 1);
-    if (typeof factory !== "function") {
-      throw new Error("expected browser plugin to register a tool factory");
-    }
-    const tool = factory({
-      workspaceDir: "/tmp/workspace",
-      hostCapabilities: { "approval-free-exec": { execute: vi.fn() } },
-      registerRunCleanup: vi.fn(),
-    });
-    if (!tool || Array.isArray(tool)) {
-      throw new Error("expected a single Browser Use CLI tool");
-    }
+        const factory = mockCallArg(registerTool);
+        expect(mockCallArg(registerTool, 0, 1)).toBeUndefined();
+        if (typeof factory !== "function") {
+          throw new Error("expected browser plugin to register a tool factory");
+        }
+        const beforeRecovery = factory({ workspaceDir: root });
+        if (!beforeRecovery || Array.isArray(beforeRecovery)) {
+          throw new Error("expected a single native Browser tool");
+        }
+        expect(beforeRecovery.description).not.toContain("Browser Use CLI 3.0");
+        expect(beforeRecovery.descriptorCacheMode).toBe("live");
 
-    expect(registrationOptions).toEqual({ hostCapabilities: ["approval-free-exec"] });
-    expect(tool.name).toBe("browser");
-    expect(tool.description).toContain("Browser Use CLI 3.0");
-    expect(tool.hostCapabilityFallback?.name).toBe("browser");
-    expect(tool.hostCapabilityFallback?.description).not.toContain("Browser Use CLI 3.0");
-    expect(runtimeApiMocks.createBrowserTool).not.toHaveBeenCalled();
-  });
+        fs.writeFileSync(readyPath, "ready");
+        const afterRecovery = factory({ workspaceDir: root });
+        if (!afterRecovery || Array.isArray(afterRecovery)) {
+          throw new Error("expected a single Browser Use CLI tool");
+        }
+        expect(afterRecovery.name).toBe("browser");
+        expect(afterRecovery.description).toContain("Browser Use CLI 3.0");
+        expect(afterRecovery.requiresApprovalFreeHostExec).toBe(true);
+        expect(afterRecovery.approvalFreeHostExecFallback?.name).toBe("browser");
+        expect(afterRecovery.approvalFreeHostExecFallback?.description).not.toContain(
+          "Browser Use CLI 3.0",
+        );
+        expect(afterRecovery.descriptorCacheMode).toBe("live");
+        expect(runtimeApiMocks.createBrowserTool).not.toHaveBeenCalled();
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("passes runtime context needed for screenshot image understanding", async () => {
     const { api, registerTool } = createApi();

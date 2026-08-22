@@ -12,7 +12,6 @@ import { appendRuntimePluginToolGrant } from "./tool-grant-allowlist.js";
 type MockRegistryToolEntry = {
   pluginId: string;
   optional: boolean;
-  hostCapabilities?: readonly "approval-free-exec"[];
   origin?: "bundled" | "global" | "workspace" | "config";
   source: string;
   names: string[];
@@ -3394,59 +3393,14 @@ describe("resolvePluginTools optional tools", () => {
     expectResolvedToolNames(tools, ["optional_tool"]);
   });
 
-  it("keeps requested host capabilities inert until the exact registration is activated", async () => {
-    const execute = vi.fn(async (_toolCallId?: string, _params?: unknown) => ({
-      content: [{ type: "text", text: "host ok" }],
-    }));
-    setRegistry([
-      createNamedToolEntry("browser", "browser", {
-        declaredNames: ["browser"],
-        hostCapabilities: ["approval-free-exec"],
-        factory: (context) => {
-          const capability = (
-            context as {
-              hostCapabilities?: { "approval-free-exec"?: { execute: typeof execute } };
-            }
-          ).hostCapabilities?.["approval-free-exec"];
-          if (!capability) {
-            throw new Error("expected scoped host capability");
-          }
-          return {
-            ...makeTool("browser"),
-            execute: async () => await capability.execute("nested", {}),
-          };
-        },
-      }),
-    ]);
-
-    const [tool] = resolvePluginTools(
-      createResolveToolsParams({
-        context: {
-          ...createContext(),
-          hostCapabilities: { "approval-free-exec": { execute } },
-        },
-      }),
-    );
-    const resolved = expectDefined(tool, "host-capability tool test invariant");
-    await expect(resolved.execute("before", {})).rejects.toThrow(/not active/);
-
-    const meta = getPluginToolMeta(resolved);
-    expect(meta?.hostCapabilities).toEqual(["approval-free-exec"]);
-    meta?.activateHostCapabilities?.(["approval-free-exec"]);
-    await expect(resolved.execute("after", {})).resolves.toEqual({
-      content: [{ type: "text", text: "host ok" }],
-    });
-    expect(execute).toHaveBeenCalledOnce();
-  });
-
-  it("does not cache descriptors carrying live host authority metadata", () => {
+  it("does not cache descriptors explicitly requiring live construction", () => {
     const factory = vi.fn(() => ({
       ...makeTool("browser"),
+      descriptorCacheMode: "live" as const,
     }));
     setRegistry([
       createNamedToolEntry("browser", "browser", {
         declaredNames: ["browser"],
-        hostCapabilities: ["approval-free-exec"],
         factory,
       }),
     ]);
@@ -3454,6 +3408,28 @@ describe("resolvePluginTools optional tools", () => {
     resolvePluginTools(createResolveToolsParams());
     resolvePluginTools(createResolveToolsParams());
 
+    expect(factory).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed when descriptor cache metadata cannot be read", () => {
+    const factory = vi.fn(() => {
+      const tool = makeTool("browser");
+      Object.defineProperty(tool, "descriptorCacheMode", {
+        get() {
+          throw new Error("untrusted descriptor cache accessor");
+        },
+      });
+      return tool;
+    });
+    setRegistry([
+      createNamedToolEntry("browser", "browser", {
+        declaredNames: ["browser"],
+        factory,
+      }),
+    ]);
+
+    expect(() => resolvePluginTools(createResolveToolsParams())).not.toThrow();
+    expect(() => resolvePluginTools(createResolveToolsParams())).not.toThrow();
     expect(factory).toHaveBeenCalledTimes(2);
   });
 });

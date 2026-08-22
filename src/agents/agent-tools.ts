@@ -647,11 +647,10 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     recordToolPrepStage: options?.recordToolPrepStage,
   });
   const configuredExecHost = options?.exec?.host ?? execConfig.host;
-  const approvalFreeHostExecSource =
+  const approvalFreeHostExecAuthorized =
     includeShellTools &&
     !sandbox &&
     process.platform !== "win32" &&
-    options?.registerRunCleanup !== undefined &&
     (configuredExecHost === undefined ||
       configuredExecHost === "auto" ||
       configuredExecHost === "gateway") &&
@@ -661,30 +660,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       security: effectiveExecPolicy.security,
       ask: effectiveExecPolicy.ask,
       bypassHostApprovalFloors: sessionCoreToolPolicy?.bypassHostApprovalFloors,
-    })
-      ? coreTools.find((tool) => tool.name === "exec")
-      : undefined;
-  let approvalFreeHostExecExecute: AnyAgentTool["execute"] | undefined;
-  const approvalFreeHostExec = approvalFreeHostExecSource
-    ? {
-        execute: async (
-          toolCallId: string,
-          params: unknown,
-          signal?: AbortSignal,
-          onUpdate?: Parameters<AnyAgentTool["execute"]>[3],
-        ) => {
-          if (!approvalFreeHostExecExecute) {
-            throw new Error("Approval-free host exec is not active for this tool selection");
-          }
-          return await approvalFreeHostExecExecute(toolCallId, params, signal, onUpdate);
-        },
-      }
-    : undefined;
-  if (approvalFreeHostExec) {
-    options?.registerRunCleanup?.(async () => {
-      approvalFreeHostExecExecute = undefined;
     });
-  }
   const cronCreatorAuthorityResolver = bindActiveCronCreatorAuthorityResolver(options?.runId);
   // A fresh exact-run capability authorizes only automation creation. Keep every
   // other owner-only control-plane tool denied for senderless operator turns.
@@ -759,10 +735,6 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             sessionId: options?.sessionId,
             conversationRecall: options?.conversationRecall,
             oneShotCliRun: options?.oneShotCliRun,
-            pluginHostCapabilities: approvalFreeHostExec
-              ? { "approval-free-exec": approvalFreeHostExec }
-              : undefined,
-            registerRunCleanup: options?.registerRunCleanup,
             sandboxBrowserBridgeUrl: sandbox?.browser?.bridgeUrl,
             allowHostBrowserControl: sandbox ? sandbox.browserAllowHostControl : true,
             sandboxed: Boolean(sandbox),
@@ -813,9 +785,6 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             ...(options?.systemAgentTool ? { systemAgentTool: options.systemAgentTool } : {}),
             sandboxBrowserBridgeUrl: sandbox?.browser?.bridgeUrl,
             allowHostBrowserControl: sandbox ? sandbox.browserAllowHostControl : true,
-            pluginHostCapabilities: approvalFreeHostExec
-              ? { "approval-free-exec": approvalFreeHostExec }
-              : undefined,
             agentSessionKey: options?.sessionKey,
             runId: options?.runId,
             runSessionKey: options?.runSessionKey,
@@ -996,41 +965,22 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       !options?.swarmCollector ||
       (tool.name !== "ask_user" && tool.name !== "sessions_send" && tool.name !== "sessions_yield"),
   );
-  const availableHostCapabilities = new Set<string>();
-  if (
-    approvalFreeHostExecSource &&
-    authorizedTools.some((tool) => tool.name === approvalFreeHostExecSource.name)
-  ) {
-    availableHostCapabilities.add("approval-free-exec");
-  }
-  const selectedHostCapabilities = new Set<string>();
+  const approvalFreeExecRetained =
+    approvalFreeHostExecAuthorized && authorizedTools.some((tool) => tool.name === "exec");
   authorizedTools = authorizedTools.flatMap((tool) => {
-    const meta = getPluginToolMeta(tool);
-    const required = meta?.hostCapabilities;
-    if (!required || required.length === 0) {
+    if (tool.requiresApprovalFreeHostExec !== true) {
       return [tool];
     }
-    if (
-      !meta?.activateHostCapabilities ||
-      required.some((capability) => !availableHostCapabilities.has(capability))
-    ) {
-      const fallback = tool.hostCapabilityFallback;
-      if (!fallback || fallback.name !== tool.name || !meta) {
-        return [];
-      }
-      const {
-        hostCapabilities: _hostCapabilities,
-        activateHostCapabilities: _activateHostCapabilities,
-        ...fallbackMeta
-      } = meta;
-      setPluginToolMeta(fallback, fallbackMeta);
-      return [fallback];
+    if (approvalFreeExecRetained) {
+      return [tool];
     }
-    meta.activateHostCapabilities(required);
-    for (const capability of required) {
-      selectedHostCapabilities.add(capability);
+    const fallback = tool.approvalFreeHostExecFallback;
+    const meta = getPluginToolMeta(tool);
+    if (!fallback || fallback.name !== tool.name || !meta) {
+      return [];
     }
-    return [tool];
+    setPluginToolMeta(fallback, meta);
+    return [fallback];
   });
   if (
     swarmStructuredOutputTool &&
@@ -1086,7 +1036,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     allocateToolOutcomeOrdinal: options?.allocateToolOutcomeOrdinal,
   };
   // NOTE: Keep canonical (lowercase) tool names here. Provider transports remap on the wire.
-  const finalizedTools = finalizeAgentTools({
+  return finalizeAgentTools({
     tools: authorizedTools,
     modelProvider: options?.modelProvider,
     modelId: options?.modelId,
@@ -1099,12 +1049,6 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     agentId,
     recordToolPrepStage: options?.recordToolPrepStage,
   });
-  if (selectedHostCapabilities.has("approval-free-exec")) {
-    approvalFreeHostExecExecute = finalizedTools.find(
-      (tool) => tool.name === approvalFreeHostExecSource?.name,
-    )?.execute;
-  }
-  return finalizedTools;
 }
 
 /** Build the runtime tool list exposed through the public agent harness SDK. */
