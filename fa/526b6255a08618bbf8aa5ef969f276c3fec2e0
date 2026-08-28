@@ -1,0 +1,45 @@
+src/agents/approval-free-host-exec-authority.test.ts
+  s_72a8aaac2edf1f::t_726a29dd9f89eb 1-17
+src/agents/approval-free-host-exec-authority.ts
+  s_72a8aaac2edf1f::t_da724c33f36196 1-45
+extensions/browser/index.test.ts
+  s_72a8aaac2edf1f::t_ac6323a5197abf 249
+  s_72a8aaac2edf1f::t_903c95208d4f33 253,267
+  s_72a8aaac2edf1f::t_a466d7b050ff5a 206
+extensions/browser/src/browser-use-cli-tool.test.ts
+  s_72a8aaac2edf1f::t_903c95208d4f33 1-3,6-10,13,19-22,25-27,29,37,39-42,44-46,48-53,64,79-90,99-100,104-105
+  s_72a8aaac2edf1f::t_e69bdef913edf4 54
+  s_72a8aaac2edf1f::t_392a5d803461ec 63
+  s_72a8aaac2edf1f::t_e658166b80afcf 4-5,11,14
+  s_72a8aaac2edf1f::t_ad9b3bb42191f3 17
+  s_72a8aaac2edf1f::t_789e5033a18e44 47
+  s_72a8aaac2edf1f::t_a594a189179b41 12,18,23-24,28,30-36,38,43,55-60,62,65,91-95,97-98,101-103
+  s_72a8aaac2edf1f::t_4768340e20230f 61,66-78
+extensions/browser/plugin-registration.ts
+  s_72a8aaac2edf1f::t_4768340e20230f 313-315
+  s_72a8aaac2edf1f::t_a466d7b050ff5a 34-37,307
+  s_72a8aaac2edf1f::t_a9505ca1ba7195 47,149-155,316
+extensions/browser/src/browser-use-cli-tool.schema.ts
+  s_72a8aaac2edf1f::t_a9505ca1ba7195 1-4,6-20,24-40,42-43
+  s_72a8aaac2edf1f::t_c90965fae6a1b7 21-23
+  s_72a8aaac2edf1f::t_789e5033a18e44 41
+src/agents/openclaw-tools.browser-plugin.integration.test.ts
+  s_72a8aaac2edf1f::t_15bf0e00dc49e6 116-119,122,125-126,135,139-140,142,169-170,190-191
+  s_72a8aaac2edf1f::t_c7ba1701aadbf1 24,27,130,132-134,143-147,152-158,160-168,194,196-199,207-210,213-222
+  s_72a8aaac2edf1f::t_1c0a5f61e64bed 131,195
+  s_72a8aaac2edf1f::t_4768340e20230f 148-151,183-186,188,200-206,225-230
+  s_72a8aaac2edf1f::t_4c5e9f3428a331 171-180
+extensions/browser/src/browser-use-cli-tool.ts
+  s_72a8aaac2edf1f::t_b4a8f6d5f70903 254
+  s_72a8aaac2edf1f::t_5fb5787dfbb87e 117,146,225-231,233-239,248-253,255-261,267-268
+  s_72a8aaac2edf1f::t_a9505ca1ba7195 1-5,10-19,21,23-56,72-88,94-95,103-104,110-112,149-151,153-156,174-180,182-185,187-203,205-215,217-221,223-224,269-276
+  s_72a8aaac2edf1f::t_5801528e9a5158 6-9,247
+  s_72a8aaac2edf1f::t_5d70db5dc86ed3 119-121,129,142-144
+  s_72a8aaac2edf1f::t_bba85a5920dbfb 20,22,59-71,89-93,96,98,100-102,105,107-109,113-116,147-148,157-159,161-163,165-173,181,216,222,241-243,245-246,262-264,266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fa526b6255a08618bbf8aa5ef969f276c3fec2e0",
+  "prompts": {}
+}
