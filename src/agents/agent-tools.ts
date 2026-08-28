@@ -659,7 +659,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     recordToolPrepStage: options?.recordToolPrepStage,
   });
   const configuredExecHost = options?.exec?.host ?? execConfig.host;
-  const approvalFreeHostExecAuthorized =
+  const hasCurrentApprovalFreeHostExecAuthority = () =>
     includeShellTools &&
     !sandbox &&
     process.platform !== "win32" &&
@@ -993,13 +993,27 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       (tool.name !== "ask_user" && tool.name !== "sessions_send" && tool.name !== "sessions_yield"),
   );
   const approvalFreeExecRetained =
-    approvalFreeHostExecAuthorized && authorizedTools.some((tool) => tool.name === "exec");
+    hasCurrentApprovalFreeHostExecAuthority() &&
+    authorizedTools.some((tool) => tool.name === "exec");
   authorizedTools = authorizedTools.flatMap((tool) => {
     if (tool.requiresApprovalFreeHostExec !== true) {
       return [tool];
     }
     if (approvalFreeExecRetained) {
-      return [tool];
+      const guardedTool: AnyAgentTool = {
+        ...tool,
+        execute: async (toolCallId, params, signal, onUpdate) => {
+          if (!hasCurrentApprovalFreeHostExecAuthority()) {
+            throw new Error("tool denied: approval-free host exec authority was revoked");
+          }
+          return await tool.execute(toolCallId, params, signal, onUpdate);
+        },
+      };
+      const meta = getPluginToolMeta(tool);
+      if (meta) {
+        setPluginToolMeta(guardedTool, meta);
+      }
+      return [guardedTool];
     }
     const fallback = tool.approvalFreeHostExecFallback;
     const meta = getPluginToolMeta(tool);

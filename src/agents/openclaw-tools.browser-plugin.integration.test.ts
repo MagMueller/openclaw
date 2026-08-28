@@ -32,6 +32,7 @@ import { jsonResult } from "./tools/common.js";
 
 const hoisted = vi.hoisted(() => ({
   resolvePluginTools: vi.fn(),
+  hasApprovalFreeHostExecAuthority: vi.fn((_params: unknown) => true),
 }));
 const TEST_AGENT_DIR = path.join(os.tmpdir(), "openclaw-plugin-tool-auth-test");
 const observedGatewayCallerIdentities: unknown[] = [];
@@ -39,6 +40,11 @@ const observedGatewayCallerIdentities: unknown[] = [];
 vi.mock("../plugins/tools.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../plugins/tools.js")>()),
   resolvePluginTools: (...args: unknown[]) => hoisted.resolvePluginTools(...args),
+}));
+
+vi.mock("./approval-free-host-exec-authority.js", () => ({
+  hasApprovalFreeHostExecAuthority: (params: unknown) =>
+    hoisted.hasApprovalFreeHostExecAuthority(params),
 }));
 
 function firstResolvePluginToolsParams(): Record<string, unknown> {
@@ -53,6 +59,7 @@ function firstResolvePluginToolsParams(): Record<string, unknown> {
 describe("createOpenClawTools browser plugin integration", () => {
   afterEach(() => {
     hoisted.resolvePluginTools.mockReset();
+    hoisted.hasApprovalFreeHostExecAuthority.mockReset().mockReturnValue(true);
     vi.unstubAllEnvs();
     clearSecretsRuntimeSnapshot();
     resetConfigRuntimeState();
@@ -152,6 +159,39 @@ describe("createOpenClawTools browser plugin integration", () => {
       details: { engine: "browser-use-cli" },
     });
     expect(browserExecute).toHaveBeenCalledOnce();
+  });
+
+  it("revalidates approval-free host exec authority before plugin tool I/O", async () => {
+    const browserExecute = vi.fn(async () => jsonResult({ engine: "browser-use-cli" }));
+    hoisted.resolvePluginTools.mockImplementation(() => {
+      const browser = {
+        label: "Browser",
+        name: "browser",
+        description: "Browser Use CLI fixture",
+        parameters: { type: "object" as const, properties: {} },
+        execute: browserExecute,
+        requiresApprovalFreeHostExec: true as const,
+      };
+      setPluginToolMeta(browser, { pluginId: "browser", optional: false });
+      return [browser];
+    });
+
+    const tools = createOpenClawCodingTools({
+      workspaceDir: process.cwd(),
+      sessionPermissionPolicy: { root: process.cwd(), mode: "full" },
+      exec: { mode: "full", security: "full", ask: "off" },
+      config: { tools: { allow: ["exec", "browser"] } },
+    });
+    const browser = tools.find((tool) => tool.name === "browser");
+    if (!browser) {
+      throw new Error("expected browser tool");
+    }
+
+    hoisted.hasApprovalFreeHostExecAuthority.mockReturnValue(false);
+    await expect(browser.execute("browser-revoked", {})).rejects.toThrow(
+      "approval-free host exec authority was revoked",
+    );
+    expect(browserExecute).not.toHaveBeenCalled();
   });
 
   it("retains a same-name capability-free fallback when final policy denies exec", async () => {
