@@ -1,0 +1,56 @@
+extensions/browser/src/browser-use-cli-install.ts
+  s_72a8aaac2edf1f::t_e366bd7e41df96 88-89
+  s_72a8aaac2edf1f::t_d33e4f8574b5a8 1-2,4-87,93-94,96-215,217-428
+  s_72a8aaac2edf1f::t_c1125900329fa1 90-92
+  s_72a8aaac2edf1f::t_e35ad23bdfc50c 95
+  s_72a8aaac2edf1f::t_16a18591383c95 3,216
+extensions/browser/src/browser-use-cli-tool.schema.ts
+  s_72a8aaac2edf1f::t_12215f8c545166 1-46
+extensions/browser/index.test.ts
+  s_72a8aaac2edf1f::t_09695f68ba0e0e 194-197,201,266,290-316,318-326
+  s_72a8aaac2edf1f::t_a28fc59255d887 317
+extensions/browser/skills/browser-automation/SKILL.md
+  s_72a8aaac2edf1f::t_419d12cea5c431 11-38
+extensions/browser/plugin-registration.ts
+  s_72a8aaac2edf1f::t_ebf7f21ad0bfc3 34-37,42-47,57,167,171-241,381,384-398,400-404
+  s_72a8aaac2edf1f::t_301ce58d53f9e9 153-155
+  s_72a8aaac2edf1f::t_257b2f223df11d 156-166
+  s_72a8aaac2edf1f::t_b51d548ce369f6 399
+  s_72a8aaac2edf1f::t_a28fc59255d887 168-170
+  s_72a8aaac2edf1f::t_1bcc9495e58519 38-41
+extensions/browser/src/browser-use-cli-tool.test.ts
+  s_72a8aaac2edf1f::t_1fa8abcc76197a 63-65,201
+  s_72a8aaac2edf1f::t_26e5dbbd4314d3 1-10,13-35,37-62,66-113,118-169,184-187,190-200,202-203
+  s_72a8aaac2edf1f::t_4159dbb5a12861 114-117,170
+  s_72a8aaac2edf1f::t_f35a7bde79bffb 36
+  s_72a8aaac2edf1f::t_59d41e257fccdb 188-189
+  s_72a8aaac2edf1f::t_061e7e89d528e6 173-183
+  s_72a8aaac2edf1f::t_e35ad23bdfc50c 12
+  s_72a8aaac2edf1f::t_1bcc9495e58519 11
+extensions/browser/openclaw.plugin.json
+  s_72a8aaac2edf1f::t_257b2f223df11d 29-35
+  s_72a8aaac2edf1f::t_ebf7f21ad0bfc3 18-23
+extensions/browser/src/browser-use-cli-tool.ts
+  s_72a8aaac2edf1f::t_4159dbb5a12861 237-269,294-303,309
+  s_72a8aaac2edf1f::t_f4a1fad494374d 48-52,130-135,139-143,224-225,332-334
+  s_72a8aaac2edf1f::t_12215f8c545166 4-12,18-37,39-47,53-122,127-129,136-138,144,151-154,156-160,162-223,226-236,270-293,304-308,310-331,335-435
+  s_72a8aaac2edf1f::t_2d83ad45a014ca 145-150,155
+  s_72a8aaac2edf1f::t_2cc321d8f50437 1,3,13-17,38
+  s_72a8aaac2edf1f::t_b51d548ce369f6 2,123-126,161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "06d891a054c3b0d8c9ea64bfd91c19456dd39563",
+  "prompts": {},
+  "sessions": {
+    "s_72a8aaac2edf1f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01757-ec68-7c12-a087-084d485453cb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
