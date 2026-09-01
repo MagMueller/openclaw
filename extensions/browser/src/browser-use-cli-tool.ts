@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import type { AgentToolResult } from "openclaw/plugin-sdk/agent-core";
+import { imageResultFromFile } from "openclaw/plugin-sdk/channel-actions";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/core";
 import { resolveNodeHostExecutable } from "openclaw/plugin-sdk/node-host";
 import {
@@ -10,6 +11,8 @@ import {
   type CommandOptions,
   type SpawnResult,
 } from "openclaw/plugin-sdk/process-runtime";
+import type { SsrFPolicy } from "openclaw/plugin-sdk/ssrf-runtime";
+import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk/temp-path";
 import {
   ensureManagedBrowserHarness,
   resolveManagedBrowserHarnessPaths,
@@ -19,9 +22,8 @@ import {
   BrowserUseCliToolSchema,
   describeBrowserUseCliTool,
 } from "./browser-use-cli-tool.schema.js";
+import { assertBrowserNavigationAllowed } from "./browser/navigation-guard.js";
 import { writeExternalFileWithinOutputRoot } from "./browser/output-files.js";
-import { resolvePreferredOpenClawTmpDir } from "./infra/tmp-openclaw-dir.js";
-import { imageResultFromFile } from "./sdk-setup-tools.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 120;
 const PREFLIGHT_TIMEOUT_MS = 5_000;
@@ -231,6 +233,7 @@ export function createBrowserUseCliTool(opts: {
   workspaceDir: string;
   runCommand?: RunCommand;
   ensureManaged?: typeof ensureManagedBrowserHarness;
+  ssrfPolicy?: SsrFPolicy;
 }): AnyAgentTool {
   const runCommand = opts.runCommand ?? runCommandWithTimeout;
   const ensureManaged = opts.ensureManaged ?? ensureManagedBrowserHarness;
@@ -363,6 +366,10 @@ export function createBrowserUseCliTool(opts: {
         if (!url) {
           return textResult("action=open requires url.", { action, error: "missing_url" });
         }
+        await assertBrowserNavigationAllowed({
+          url,
+          ...(opts.ssrfPolicy ? { ssrfPolicy: opts.ssrfPolicy } : {}),
+        });
         return await run(
           action,
           {

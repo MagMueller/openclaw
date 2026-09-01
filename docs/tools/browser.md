@@ -16,6 +16,14 @@ modify system Python. Later calls reuse the same install and Browser Harness
 daemon. OpenClaw disables Browser Harness telemetry and recordings for this
 managed integration.
 
+Browser Harness controls a running Chrome-family browser. It can launch Chrome,
+but Chrome may require the user to enable remote debugging once and approve its
+"Allow remote debugging?" prompt. OpenClaw selects this backend only for a
+trusted, unrestricted local Gateway run where host `exec` is effectively
+`full` / `off`, the final tool policy still allows `exec`, and the agent is not
+sandboxed. Guarded, approval-gated, sandboxed, or remote-exec runs keep the
+native browser tool. No Browser Use Cloud key is required.
+
 The OpenClaw native browser backend remains available for sandboxed, remote,
 bound, or explicitly configured native sessions and for the `openclaw browser`
 CLI. It runs a **dedicated Chrome/Brave/Edge/Chromium profile** through a small

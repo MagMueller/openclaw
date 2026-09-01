@@ -298,6 +298,8 @@ describe("browser plugin", () => {
     expect(tool.name).toBe("browser");
     expect(tool.description).toContain("Browser Use CLI 3.0");
     expect(tool.description).toContain("installs Browser Harness on first use");
+    expect(tool.requiresApprovalFreeHostExec).toBe(true);
+    expect(tool.approvalFreeHostExecFallback?.description).toContain("Host target");
   });
 
   it("preserves the native browser for authored browser config and sandbox routing", () => {
