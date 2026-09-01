@@ -417,24 +417,20 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
     ) {
       return nativeTool;
     }
-    const runtime = useOrchestratorBrowserUseCli
+    const browserUseCliRuntime = useOrchestratorBrowserUseCli
       ? prepareBrowserUseCliRuntime()
       : prepareManagedBrowserUseCliRuntime();
-    if (!runtime) {
-      if (useOrchestratorBrowserUseCli) {
-        nativeTool.descriptorCacheMode = "live";
-      }
+    if (!browserUseCliRuntime) {
       return nativeTool;
     }
     const browserUseCliTool = createLazyBrowserUseCliTool({
-      runtime,
+      runtime: browserUseCliRuntime,
       workspaceDir: ctx.workspaceDir,
       nativeTool,
       ssrfPolicy: resolveBrowserConfig(config?.browser, config).ssrfPolicy,
     });
     browserUseCliTool.requiresApprovalFreeHostExec = true;
     browserUseCliTool.approvalFreeHostExecFallback = nativeTool;
-    browserUseCliTool.descriptorCacheMode = "live";
     return browserUseCliTool;
   }) as OpenClawPluginToolFactory);
   registerBrowserCliMetadata(api);
