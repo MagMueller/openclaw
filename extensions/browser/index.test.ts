@@ -319,6 +319,8 @@ describe("browser plugin", () => {
     expect(tool.name).toBe("browser");
     expect(tool.description).toContain("Browser Use CLI 3.0");
     expect(tool.description).toContain("installs Browser Harness on first use");
+    expect(tool.requiresApprovalFreeHostExec).toBe(true);
+    expect(tool.approvalFreeHostExecFallback?.description).toContain("Host target");
   });
 
   it("preserves the native browser for authored browser config and sandbox routing", () => {
@@ -331,7 +333,7 @@ describe("browser plugin", () => {
 
     for (const context of [
       { workspaceDir: "/tmp/workspace", runtimeConfig: { browser: { headless: true } } },
-      { workspaceDir: "/tmp/workspace", runtimeConfig: { browser: { enabled: false } } },
+      { workspaceDir: "/tmp/workspace", runtimeConfig: { browser: { enabled: true } } },
       { workspaceDir: "/tmp/workspace", sandboxed: true },
     ]) {
       const tool = factory(context);
@@ -341,6 +343,22 @@ describe("browser plugin", () => {
       expect(tool.description).toContain("Host target");
       expect(tool.description).not.toContain("Browser Use CLI 3.0");
     }
+  });
+
+  it("hides the browser tool when browser.enabled is false", () => {
+    const { api, registerTool } = createApi();
+    registerBrowserPlugin(api);
+    const factory = mockCallArg(registerTool);
+    if (typeof factory !== "function") {
+      throw new Error("expected browser plugin to register a tool factory");
+    }
+
+    expect(
+      factory({
+        workspaceDir: "/tmp/workspace",
+        runtimeConfig: { browser: { enabled: false } },
+      }),
+    ).toBeNull();
   });
 
   it("passes the browser-owned run binding into the tool layer", async () => {
