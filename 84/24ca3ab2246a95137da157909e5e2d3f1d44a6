@@ -1,0 +1,22 @@
+extensions/browser/src/browser-use-cli-tool.test.ts
+  s_72a8aaac2edf1f::t_392a5d803461ec 83,86-87,91
+  s_72a8aaac2edf1f::t_2e0730292f5833 79-82,84-85,88-90,92-102
+extensions/browser/src/browser-use-cli-tool.ts
+  s_72a8aaac2edf1f::t_2e0730292f5833 72-80,195-198,252
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8424ca3ab2246a95137da157909e5e2d3f1d44a6",
+  "prompts": {},
+  "sessions": {
+    "s_72a8aaac2edf1f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01757-ec68-7c12-a087-084d485453cb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "MagMueller <mamagnus00@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,51 @@
+src/agents/approval-free-host-exec-authority.test.ts
+  s_72a8aaac2edf1f::t_70562ed84ac98c 3-4,20,26-36,64-65
+  s_72a8aaac2edf1f::t_bfa3b87755db69 1-2,5,7-19,21,23-25,37-40,42-63
+  s_72a8aaac2edf1f::t_2e90edb39aac74 6,22,41
+extensions/browser/src/browser-use-cli-tool.test.ts
+  s_72a8aaac2edf1f::t_fd01f7f0fa40e0 41-55
+  s_72a8aaac2edf1f::t_f8b5a28b98d34b 88,90-105,112-116,212,221-227
+docs/tools/browser.md
+  s_72a8aaac2edf1f::t_3ec284415f4ed8 18-23,53-54,61-63,118-119,141-151
+  s_72a8aaac2edf1f::t_8fadc958627f7e 55-56,58-59
+extensions/browser/src/browser-use-cli-install.ts
+  s_72a8aaac2edf1f::t_70562ed84ac98c 396
+  s_72a8aaac2edf1f::t_fd01f7f0fa40e0 22-34
+src/agents/agent-tools.ts
+  s_72a8aaac2edf1f::t_70562ed84ac98c 27,53,603-605,607,611-623,1027,1035-1065
+  s_72a8aaac2edf1f::t_c31bca1453ae98 606,608-610
+src/agents/approval-free-host-exec-authority.ts
+  s_72a8aaac2edf1f::t_70562ed84ac98c 1-47
+extensions/browser/skills/browser-automation/SKILL.md
+  s_72a8aaac2edf1f::t_3ec284415f4ed8 16-17
+src/plugins/tools.ts
+  s_72a8aaac2edf1f::t_70562ed84ac98c 79-86,1517
+src/agents/openclaw-tools.browser-plugin.integration.test.ts
+  s_72a8aaac2edf1f::t_4e73619f377a85 23,26,35-42,52-56,69-71,131-212
+extensions/browser/plugin-registration.ts
+  s_72a8aaac2edf1f::t_70562ed84ac98c 18,167,193,376-378,397-399,402-411
+extensions/browser/index.test.ts
+  s_72a8aaac2edf1f::t_f8b5a28b98d34b 305-306,319,331-344
+extensions/browser/src/browser-use-cli-tool.ts
+  s_72a8aaac2edf1f::t_70562ed84ac98c 13,23,236,369-372
+src/plugins/tools.optional.test.ts
+  s_72a8aaac2edf1f::t_2dfec439df2dfd 3440-3479
+src/agents/tools/common.ts
+  s_72a8aaac2edf1f::t_70562ed84ac98c 63-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e00ad3cd7d36f2c906fc8705ea6e5d6452b5880f",
+  "prompts": {},
+  "sessions": {
+    "s_72a8aaac2edf1f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01757-ec68-7c12-a087-084d485453cb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "MagMueller <mamagnus00@gmail.com>"
+    }
+  }
+}

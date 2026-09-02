@@ -1,0 +1,23 @@
+src/agents/embedded-agent-runner/run/settled-turn-finalization.ts
+  s_72a8aaac2edf1f::t_aec155bc1d9004 32-33,208-211,215
+src/agents/embedded-agent-runner/run/settled-turn-finalization.test.ts
+  s_72a8aaac2edf1f::t_d23cd929343c46 12,145,158,170-172,225-252,259-271
+  s_72a8aaac2edf1f::t_54a42e51169614 253-258
+  s_72a8aaac2edf1f::t_603a39f0754bb9 1,139-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9a3fffeab9008cc7a9b7c2a49f0e4dacba35aa37",
+  "prompts": {},
+  "sessions": {
+    "s_72a8aaac2edf1f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01757-ec68-7c12-a087-084d485453cb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "MagMueller <mamagnus00@gmail.com>"
+    }
+  }
+}
