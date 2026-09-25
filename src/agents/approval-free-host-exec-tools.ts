@@ -1,4 +1,5 @@
 import { getPluginToolMeta } from "../plugins/tool-metadata.js";
+import { withCommandExecutionAuthority } from "../process/command-execution-authority.js";
 import { copyAgentToolMetadata } from "./agent-tool-metadata.js";
 import type { AnyAgentTool } from "./agent-tools.types.js";
 import { hasApprovalFreeHostExecAuthority } from "./approval-free-host-exec-authority.js";
@@ -55,10 +56,14 @@ export function projectHostExecTools(
         copyAgentToolMetadata(tool, {
           ...tool,
           execute: async (toolCallId, params, signal, onUpdate) => {
-            if (!hasAuthority()) {
-              throw new Error("tool denied: approval-free host exec authority was revoked");
-            }
-            return await tool.execute(toolCallId, params, signal, onUpdate);
+            const assertAuthority = () => {
+              if (!hasAuthority()) {
+                throw new Error("tool denied: approval-free host exec authority was revoked");
+              }
+            };
+            return await withCommandExecutionAuthority(assertAuthority, () =>
+              tool.execute(toolCallId, params, signal, onUpdate),
+            );
           },
         }),
       ];

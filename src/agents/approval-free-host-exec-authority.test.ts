@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecApprovalsFile } from "../infra/exec-approvals.js";
 import { setPluginToolMeta } from "../plugins/tool-metadata.js";
+import { runCommandWithTimeout } from "../process/exec.js";
 import { createOpenClawCodingTools } from "./agent-tools.js";
 import { hasApprovalFreeHostExecAuthority } from "./approval-free-host-exec-authority.js";
 import { jsonResult } from "./tools/common.js";
@@ -26,8 +27,11 @@ vi.mock("../plugins/tools.js", async (importOriginal) => ({
   resolvePluginTools: (...args: unknown[]) => hoisted.resolvePluginTools(...args),
 }));
 
-function registerPolicyBrowserFixture() {
-  const harnessExecute = vi.fn(async () => jsonResult({ engine: "browser-harness" }));
+function registerPolicyBrowserFixture(options: { beforeHarnessResult?: () => Promise<void> } = {}) {
+  const harnessExecute = vi.fn(async () => {
+    await options.beforeHarnessResult?.();
+    return jsonResult({ engine: "browser-harness" });
+  });
   const nativeExecute = vi.fn(async () => jsonResult({ engine: "native" }));
   hoisted.resolvePluginTools.mockImplementation(() => {
     const browser = {
@@ -151,5 +155,42 @@ describe("hasApprovalFreeHostExecAuthority", () => {
       "approval-free host exec authority was revoked",
     );
     expect(harnessExecute).not.toHaveBeenCalled();
+  });
+
+  it("revalidates unrestricted exec authority after async preparation at process launch", async () => {
+    let markPrepared: (() => void) | undefined;
+    const prepared = new Promise<void>((resolve) => {
+      markPrepared = resolve;
+    });
+    let releasePreparation: (() => void) | undefined;
+    const preparationReleased = new Promise<void>((resolve) => {
+      releasePreparation = resolve;
+    });
+    const { harnessExecute } = registerPolicyBrowserFixture({
+      beforeHarnessResult: async () => {
+        markPrepared?.();
+        await preparationReleased;
+        await runCommandWithTimeout([process.execPath, "-e", "process.exit(0)"], 5_000);
+      },
+    });
+    const tools = createOpenClawCodingTools({
+      workspaceDir: process.cwd(),
+      exec: { mode: "full", security: "full", ask: "off" },
+      config: { tools: { allow: ["exec", "browser"] } },
+    });
+    const browser = tools.find((tool) => tool.name === "browser");
+
+    const executing = browser?.execute("browser-revoked-during-preparation", {});
+    await prepared;
+    hoisted.file = {
+      version: 1,
+      defaults: { security: "allowlist", ask: "on-miss" },
+    };
+    releasePreparation?.();
+
+    await expect(executing).rejects.toThrow(
+      "tool denied: approval-free host exec authority was revoked",
+    );
+    expect(harnessExecute).toHaveBeenCalledOnce();
   });
 });
