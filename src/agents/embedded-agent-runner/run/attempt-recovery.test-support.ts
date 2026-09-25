@@ -133,6 +133,7 @@ export async function recoverAfterTransportDrop(scenario: TransportDropScenario 
     assistant: erroredAssistant,
   });
   const markOwnedTranscriptRetry = vi.fn();
+  const activateInternalPrompt = vi.fn();
   const continueFromCurrentTranscript = vi.fn();
   const contextRecoveryState = createEmbeddedRunContextRecoveryState();
   const failoverRetryController = createEmbeddedRunFailoverRetryController({
@@ -205,6 +206,7 @@ export async function recoverAfterTransportDrop(scenario: TransportDropScenario 
       sessionPromptState: {
         sessionFile: "/tmp/session.jsonl",
         markOwnedTranscriptRetry,
+        activateInternalPrompt,
         continueFromCurrentTranscript,
       },
       failoverRetryController,
@@ -231,6 +233,7 @@ export async function recoverAfterTransportDrop(scenario: TransportDropScenario 
     attempt,
     erroredAssistant,
     markOwnedTranscriptRetry,
+    activateInternalPrompt,
     continueFromCurrentTranscript,
     contextRecoveryState,
     failoverRetryController,
