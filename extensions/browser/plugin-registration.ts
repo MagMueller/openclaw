@@ -54,6 +54,9 @@ import {
 
 const EAGER_BROWSER_CONTROL_SERVICE_ENV = "OPENCLAW_EAGER_BROWSER_CONTROL_SERVER";
 const BROWSER_HARNESS_ORCHESTRATOR_ENV = "BH_ORCHESTRATOR_EXISTING_DAEMON";
+const APPROVAL_FREE_HOST_EXEC_FALLBACK = Symbol.for(
+  "openclaw.internal.approvalFreeHostExecFallback",
+);
 const logger = createSubsystemLogger("browser");
 let hasBrowserNodeHostWork: (() => boolean) | undefined;
 let hasBrowserProxyUploadWork: (() => boolean) | undefined;
@@ -429,8 +432,8 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
       nativeTool,
       ssrfPolicy: resolveBrowserConfig(config?.browser, config).ssrfPolicy,
     });
-    browserUseCliTool.requiresApprovalFreeHostExec = true;
-    browserUseCliTool.approvalFreeHostExecFallback = nativeTool;
+    // Host-private marker for this bundled integration; do not expose it in the Plugin SDK.
+    Reflect.set(browserUseCliTool, APPROVAL_FREE_HOST_EXEC_FALLBACK, nativeTool);
     return browserUseCliTool;
   }) as OpenClawPluginToolFactory);
   registerBrowserCliMetadata(api);
