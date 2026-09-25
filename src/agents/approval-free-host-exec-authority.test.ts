@@ -12,6 +12,10 @@ const hoisted = vi.hoisted(() => ({
   resolvePluginTools: vi.fn(),
 }));
 
+const APPROVAL_FREE_HOST_EXEC_FALLBACK = Symbol.for(
+  "openclaw.internal.approvalFreeHostExecFallback",
+);
+
 vi.mock("../infra/exec-approvals.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../infra/exec-approvals.js")>()),
   loadExecApprovals: () => {
@@ -40,8 +44,7 @@ function registerPolicyBrowserFixture(options: { beforeHarnessResult?: () => Pro
       description: "Browser Harness fixture",
       parameters: { type: "object" as const, properties: {} },
       execute: harnessExecute,
-      requiresApprovalFreeHostExec: true as const,
-      approvalFreeHostExecFallback: {
+      [APPROVAL_FREE_HOST_EXEC_FALLBACK]: {
         label: "Browser",
         name: "browser",
         description: "Native browser fixture",
