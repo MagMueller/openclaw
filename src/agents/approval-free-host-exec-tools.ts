@@ -9,6 +9,14 @@ import type { projectEffectiveExecPolicy } from "./session-permission-exec-mode.
 
 type EffectiveExecPolicy = ReturnType<typeof projectEffectiveExecPolicy>;
 
+const APPROVAL_FREE_HOST_EXEC_FALLBACK = Symbol.for(
+  "openclaw.internal.approvalFreeHostExecFallback",
+);
+
+function getApprovalFreeHostExecFallback(tool: AnyAgentTool): AnyAgentTool | undefined {
+  return Reflect.get(tool, APPROVAL_FREE_HOST_EXEC_FALLBACK) as AnyAgentTool | undefined;
+}
+
 export function createHostExecAuthority(params: {
   agentId?: string;
   includeShellTools: boolean;
@@ -48,7 +56,8 @@ export function projectHostExecTools(
 ): AnyAgentTool[] {
   const approvalFreeExecRetained = hasAuthority() && tools.some((tool) => tool.name === "exec");
   return tools.flatMap((tool) => {
-    if (tool.requiresApprovalFreeHostExec !== true) {
+    const fallback = getApprovalFreeHostExecFallback(tool);
+    if (!fallback) {
       return [tool];
     }
     if (approvalFreeExecRetained) {
@@ -68,7 +77,6 @@ export function projectHostExecTools(
         }),
       ];
     }
-    const fallback = tool.approvalFreeHostExecFallback;
     if (!fallback || fallback.name !== tool.name || !getPluginToolMeta(tool)) {
       return [];
     }
