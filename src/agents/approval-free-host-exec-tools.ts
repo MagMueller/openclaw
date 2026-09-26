@@ -14,6 +14,7 @@ const APPROVAL_FREE_HOST_EXEC_FALLBACK = Symbol.for(
 );
 
 function getApprovalFreeHostExecFallback(tool: AnyAgentTool): AnyAgentTool | undefined {
+  // SAFETY: Only this bundled integration writes the private symbol, and it stores an AnyAgentTool.
   return Reflect.get(tool, APPROVAL_FREE_HOST_EXEC_FALLBACK) as AnyAgentTool | undefined;
 }
 
